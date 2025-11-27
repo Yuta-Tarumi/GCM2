@@ -10,7 +10,9 @@ def test_semi_implicit_stability(fast_cfg):
     key = jax.random.PRNGKey(2)
     perturb = 1e-3 * (jax.random.normal(key, (cfg.nlat, cfg.nlon)) + 1j * 0)
     state = state.__class__(state.zeta, state.div, state.T, state.lnps + perturb)
+    time = 0.0
     for _ in range(6):
-        state = step(state, cfg)
+        state = step(state, cfg, time)
+        time += cfg.dt
         assert jnp.all(jnp.isfinite(state.lnps))
         assert jnp.all(jnp.isfinite(state.zeta))

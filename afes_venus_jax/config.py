@@ -59,6 +59,14 @@ class Config:
     tau_hdiff: float = 0.1 * 86400.0
     order_hdiff: int = 4
 
+    # Thermodynamic configuration
+    T_surface: float = 720.0
+    T_top: float = 170.0
+    tau_newton: float = 30.0 * 86400.0
+    heating_rate: float = 5.0 / 86400.0
+    heating_peak_height: float = 60_000.0
+    heating_width: float = 15_000.0
+
 
 # Enable 64-bit globally.
 jax.config.update("jax_enable_x64", True)
