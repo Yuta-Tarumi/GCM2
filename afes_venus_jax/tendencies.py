@@ -36,17 +36,19 @@ def nonlinear_tendencies(state, cfg: Config):
     psi_lm, chi_lm = psi_chi_from_zeta_div(state.zeta, state.div, cfg)
     u_g, v_g = jax.vmap(lambda p, c: uv_from_psi_chi(p, c, cfg))(psi_lm, chi_lm)
 
-    def advect(field):
+    def advect(field, u, v):
         df_dlat, df_dlon = _grad_central(field, dlat, dlon)
-        return -(u_g * df_dlon + v_g * df_dlat)
+        return -(u * df_dlon + v * df_dlat)
 
-    zeta_t = jax.vmap(advect)(zeta_g)
-    div_t = jax.vmap(advect)(div_g)
-    T_t = jax.vmap(advect)(T_g)
+    zeta_t = jax.vmap(advect)(zeta_g, u_g, v_g)
+    div_t = jax.vmap(advect)(div_g, u_g, v_g)
+    T_t = jax.vmap(advect)(T_g, u_g, v_g)
 
     # surface pressure tendency from mass continuity (very simple surrogate)
-    div_u = _grad_central(u_g, dlat, dlon)[1]
-    div_v = _grad_central(v_g, dlat, dlon)[0]
+    u_bar = jnp.mean(u_g, axis=0)
+    v_bar = jnp.mean(v_g, axis=0)
+    div_u = _grad_central(u_bar, dlat, dlon)[1]
+    div_v = _grad_central(v_bar, dlat, dlon)[0]
     lnps_t_grid = -(div_u + div_v)
 
     # back to spectral space
