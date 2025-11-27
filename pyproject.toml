@@ -1,0 +1,15 @@
+[project]
+name = "afes_venus_jax"
+version = "0.1.0"
+description = "Simplified AFES-Venus style hydrostatic spectral core in JAX"
+authors = [{name = "OpenAI", email = "example@example.com"}]
+requires-python = ">=3.10"
+dependencies = [
+    "jax>=0.4.28",
+    "numpy",
+    "pytest",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
