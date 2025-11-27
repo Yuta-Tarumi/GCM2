@@ -6,7 +6,6 @@ self-consistency tests while preserving the spectral operator interface.
 """
 from __future__ import annotations
 
-import functools
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -14,7 +13,6 @@ from .config import Config
 from .grid import expand_grid
 
 
-@functools.lru_cache(None)
 def _wavenumbers(nlat: int, nlon: int, a: float):
     # Angular wavenumbers (radian-based) compatible with FFT derivatives.
     kx = 2 * jnp.pi * jnp.fft.fftfreq(nlon)
