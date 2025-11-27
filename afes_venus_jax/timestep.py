@@ -10,11 +10,11 @@ from .implicit import semi_implicit_update
 from .diffusion import hyperdiffusion
 
 
-def step(state: ModelState, cfg: Config) -> ModelState:
+def step(state: ModelState, cfg: Config, time: float = 0.0) -> ModelState:
     """Single leapfrog time step with explicit nonlinear terms and a
     simplified semi-implicit gravity-wave stabilisation."""
 
-    tendencies = nonlinear_tendencies(state, cfg)
+    tendencies = nonlinear_tendencies(state, cfg, time)
     zeta_new, div_new, T_new, lnps_new = semi_implicit_update(state, tendencies, cfg)
     new_state = ModelState(zeta_new, div_new, T_new, lnps_new)
     new_state = hyperdiffusion(new_state, cfg)
@@ -24,4 +24,4 @@ def step(state: ModelState, cfg: Config) -> ModelState:
 def stepper(cfg: Config):
     """Return a jitted stepping function suitable for ``lax.scan``."""
 
-    return jax.jit(lambda s, _: (step(s, cfg), None))
+    return jax.jit(lambda s, t: (step(s, cfg, t), None))

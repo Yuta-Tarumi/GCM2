@@ -20,9 +20,10 @@ def main():
 
     step_fn = stepper(cfg)
     nsteps = int(6 * 3600 / cfg.dt)
+    times = jnp.arange(1, nsteps + 1, dtype=float) * cfg.dt
 
-    for istep in range(1, nsteps + 1):
-        state, _ = step_fn(state, None)
+    for istep, t in enumerate(times, start=1):
+        state, _ = step_fn(state, t)
         if istep % 10 == 0:
             log_snapshot(state, cfg, istep)
 

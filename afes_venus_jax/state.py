@@ -6,6 +6,8 @@ import jax
 import jax.numpy as jnp
 from typing import Tuple
 from .config import Config
+from .spharm import analysis_grid_to_spec
+from .vertical import sigma_levels
 
 
 @dataclass
@@ -37,13 +39,47 @@ jax.tree_util.register_pytree_node(
 )
 
 
-def zeros_state(cfg: Config) -> ModelState:
-    """Create a resting state with all spectral coefficients zero."""
+def reference_temperature_profile(cfg: Config) -> jnp.ndarray:
+    """Construct a vertically varying Venus temperature profile."""
+
+    _, sigma_half, z_half = sigma_levels(cfg.L)
+    z_full = 0.5 * (z_half[:-1] + z_half[1:])
+    # Linear interpolation between a hot surface and a cool upper atmosphere
+    return jnp.interp(
+        z_full,
+        jnp.array([0.0, z_half[-1]]),
+        jnp.array([cfg.T_surface, cfg.T_top]),
+    )
+
+
+def _temperature_spectrum_from_profile(profile: jnp.ndarray, cfg: Config) -> jnp.ndarray:
+    """Convert a 1D vertical temperature profile to spectral space."""
+
+    tiled = jnp.tile(profile[:, None, None], (1, cfg.nlat, cfg.nlon))
+    return jax.vmap(lambda g: analysis_grid_to_spec(g, cfg))(tiled)
+
+
+def zeros_state(cfg: Config, include_reference_temperature: bool = True) -> ModelState:
+    """Create a resting state with optional climatological temperature.
+
+    Parameters
+    ----------
+    cfg : Config
+    include_reference_temperature : bool, optional
+        When True, initialise temperature with a simple Venus-like vertical
+        profile following Lebonnois et al. (2015) with a hot surface and a cool
+        upper atmosphere. When False, temperature coefficients are set to zero.
+    """
 
     shape = (cfg.L, cfg.nlat, cfg.nlon)
     zero = jnp.zeros(shape, dtype=jnp.complex128)
     lnps = jnp.zeros((cfg.nlat, cfg.nlon), dtype=jnp.complex128)
-    return ModelState(zero, zero, zero, lnps)
+    if include_reference_temperature:
+        profile = reference_temperature_profile(cfg)
+        T = _temperature_spectrum_from_profile(profile, cfg)
+    else:
+        T = zero
+    return ModelState(zero, zero, T, lnps)
 
 
 def combine(old: ModelState, incr: ModelState) -> ModelState:

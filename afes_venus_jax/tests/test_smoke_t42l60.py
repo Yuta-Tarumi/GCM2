@@ -12,8 +12,10 @@ def test_short_spinup_no_nans(fast_cfg):
     state = ModelState(state.zeta, state.div, state.T, state.lnps + perturb)
 
     nsteps = 6
+    time = 0.0
     for _ in range(nsteps):
-        state = step(state, cfg)
+        state = step(state, cfg, time)
+        time += cfg.dt
     assert jnp.all(jnp.isfinite(state.lnps))
     assert jnp.all(jnp.isfinite(state.zeta))
 
@@ -30,7 +32,8 @@ def test_scan_spinup_example(fast_cfg):
 
     step_fn = stepper(cfg)
     nsteps = 10
-    state, _ = jax.lax.scan(step_fn, state, None, length=nsteps)
+    times = jnp.arange(1, nsteps + 1, dtype=float) * cfg.dt
+    state, _ = jax.lax.scan(step_fn, state, times, length=nsteps)
 
     assert jnp.all(jnp.isfinite(state.lnps))
     assert jnp.all(jnp.isfinite(state.zeta))

@@ -5,7 +5,8 @@ import jax
 import jax.numpy as jnp
 from .config import Config
 from .spharm import analysis_grid_to_spec, synthesis_spec_to_grid, psi_chi_from_zeta_div, uv_from_psi_chi
-from .grid import expand_grid
+from .state import reference_temperature_profile
+from .vertical import sigma_levels
 
 
 def _grad_central(field: jnp.ndarray, dlat: float, dlon: float):
@@ -14,7 +15,29 @@ def _grad_central(field: jnp.ndarray, dlat: float, dlon: float):
     return df_dlat, df_dlon
 
 
-def nonlinear_tendencies(state, cfg: Config):
+def _temperature_forcing(lat2d, lon2d, time: float, cfg: Config):
+    """Compute diurnally varying solar heating in grid space."""
+
+    _, _, z_half = sigma_levels(cfg.L)
+    z_full = 0.5 * (z_half[:-1] + z_half[1:])
+
+    local_time = lon2d - cfg.Omega * time
+    diurnal = jnp.maximum(0.0, jnp.cos(local_time))
+    meridional = jnp.cos(lat2d)
+    vertical = jnp.exp(-0.5 * ((z_full - cfg.heating_peak_height) / cfg.heating_width) ** 2)
+
+    base = cfg.heating_rate * vertical[:, None, None]
+    return base * diurnal[None, :, :] * meridional[None, :, :]
+
+
+def _newtonian_cooling(T_g: jnp.ndarray, cfg: Config):
+    """Relax toward the reference vertical profile."""
+
+    T_ref = reference_temperature_profile(cfg)[:, None, None]
+    return -(T_g - T_ref) / cfg.tau_newton
+
+
+def nonlinear_tendencies(state, cfg: Config, time: float = 0.0):
     """Compute Eulerian nonlinear tendencies in spectral space.
 
     The formulation is intentionally simple: centred finite differences on
@@ -23,7 +46,7 @@ def nonlinear_tendencies(state, cfg: Config):
     """
 
     lats, lons = jnp.linspace(-jnp.pi / 2, jnp.pi / 2, cfg.nlat), jnp.linspace(0, 2 * jnp.pi, cfg.nlon, endpoint=False)
-    lat2d, lon2d = jnp.meshgrid(lats, lons, indexing="xy")
+    lat2d, lon2d = jnp.meshgrid(lats, lons, indexing="ij")
     dlat = lats[1] - lats[0]
     dlon = lons[1] - lons[0]
 
@@ -43,6 +66,11 @@ def nonlinear_tendencies(state, cfg: Config):
     zeta_t = jax.vmap(advect)(zeta_g, u_g, v_g)
     div_t = jax.vmap(advect)(div_g, u_g, v_g)
     T_t = jax.vmap(advect)(T_g, u_g, v_g)
+
+    # Diabatic tendencies in grid space
+    heating = _temperature_forcing(lat2d, lon2d, time, cfg)
+    cooling = _newtonian_cooling(T_g, cfg)
+    T_t = T_t + heating + cooling
 
     # surface pressure tendency from mass continuity (very simple surrogate)
     u_bar = jnp.mean(u_g, axis=0)
