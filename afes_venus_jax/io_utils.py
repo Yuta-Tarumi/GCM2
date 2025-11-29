@@ -80,3 +80,21 @@ def plot_snapshot(state, t: float, step_idx: int, outdir: str, num, planet):
     outdir_path.mkdir(parents=True, exist_ok=True)
     fig.savefig(outdir_path / f"snapshot_step_{step_idx:05d}.png", dpi=150)
     plt.close(fig)
+
+
+def state_extrema(state, num, planet):
+    """Return domain-wide extrema for u, v, T, and p across all levels."""
+
+    psi_hat = jax.vmap(lambda z: invert_laplacian(z, num.nlat, num.nlon, planet.a))(state.zeta)
+    chi_hat = jax.vmap(lambda d: invert_laplacian(d, num.nlat, num.nlon, planet.a))(state.div)
+    u, v = jax.vmap(lambda psi, chi: uv_from_psi_chi(psi, chi, num.nlat, num.nlon, planet.a))(psi_hat, chi_hat)
+    T = jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(state.T)
+
+    ps = jnp.exp(synthesis_spec_to_grid(state.lnps, num.nlat, num.nlon))
+    sigma_full, _ = sigma_levels(num.L)
+    p = sigma_full[:, None, None] * ps
+
+    def minmax(field):
+        return float(field.min()), float(field.max())
+
+    return {"u": minmax(u), "v": minmax(v), "T": minmax(T), "p": minmax(p)}
