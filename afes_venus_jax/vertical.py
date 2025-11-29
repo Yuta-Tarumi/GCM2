@@ -26,7 +26,7 @@ def level_altitudes(L: int):
     return z_full, z_half
 
 
-@jax.jit
+@jax.jit(static_argnums=(3,))
 def hydrostatic_geopotential(T: jnp.ndarray, ps: jnp.ndarray, sigma_half: jnp.ndarray, planet: Planet):
     """Integrate hydrostatic balance to obtain geopotential on full levels.
 
