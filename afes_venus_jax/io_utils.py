@@ -98,3 +98,10 @@ def state_extrema(state, num, planet):
         return float(field.min()), float(field.max())
 
     return {"u": minmax(u), "v": minmax(v), "T": minmax(T), "p": minmax(p)}
+
+
+def temperature_std_by_level(state, num):
+    """Return the unweighted temperature standard deviation on each level."""
+
+    T = jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(state.T)
+    return jnp.std(T, axis=(-2, -1))

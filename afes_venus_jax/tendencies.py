@@ -51,6 +51,7 @@ def spectral_to_grid(state, num: Numerics, planet: Planet, grid=None):
 def nonlinear_tendencies(state, t: float, num: Numerics, planet: Planet, grid=None):
     grid = grid or gaussian_grid(num.nlat, num.nlon)
     zeta_g, div_g, T_g, lnps_g, u, v, Phi, ps = spectral_to_grid(state, num, planet, grid)
+    sigma_full, _ = sigma_levels(num.L)
     _, z_half = level_altitudes(num.L)
     Phi_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(Phi)
     lap_Phi_spec = jax.vmap(lambda x: lap_spec(x, num.nlat, num.nlon, planet.a))(Phi_spec)
@@ -85,8 +86,9 @@ def nonlinear_tendencies(state, t: float, num: Numerics, planet: Planet, grid=No
     div_dot = jnp.stack(div_dot)
     T_dot = jnp.stack(T_adv)
     # vertical coupling via diffusive fluxes
-    div_dot = div_dot + vertical_diffusion(div_g, z_half, num.kappa_v)
-    T_dot = T_dot + vertical_diffusion(T_g, z_half, num.kappa_v)
+    kappa_scale = jnp.square(sigma_full)
+    div_dot = div_dot + vertical_diffusion(div_g, z_half, num.kappa_v, kappa_scale)
+    T_dot = T_dot + vertical_diffusion(T_g, z_half, num.kappa_v, kappa_scale)
     # physics
     T_dot = T_dot + diurnal_heating(T_g, grid, t, planet, num) + newtonian_cooling(T_g, num)
     lnps_dot = -jnp.mean(div_g, axis=0)
