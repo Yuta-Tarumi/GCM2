@@ -52,16 +52,35 @@ def initial_state_T_profile(num: Numerics | None = None, planet: Planet | None =
     T_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(T_grid)
     lnps_spec = analysis_grid_to_spec(jnp.ones((num.nlat, num.nlon)) * jnp.log(planet.ps_ref), num.Lmax)
     z_full, _ = level_altitudes(num.L)
-    # Solid-body rotation that ramps from 0 m/s at the surface to 100 m/s at 70 km,
-    # following a cos(latitude) profile and held constant above.
+    # Vertically sheared solid-body-like zonal flow: 0 m/s at the surface, growing
+    # linearly with height to 100 m/s by 70 km at the equator, tapering with
+    # cos(latitude) to vanish at the poles and held constant aloft. Construct the
+    # streamfunction/velocity-potential pair directly in spectral space so the
+    # diagnosed u/v from ``uv_from_psi_chi`` matches the target profile under the
+    # same finite-difference operators.
     peak_height = 70_000.0
     peak_speed = 100.0
     wind_speed_levels = peak_speed * jnp.minimum(z_full / peak_height, 1.0)
-    psi_lat_profile = -(planet.a * (grid.lat2d / 2.0 + jnp.sin(2.0 * grid.lat2d) / 4.0))
-    psi_grid = wind_speed_levels[:, None, None] * psi_lat_profile[None, :, :]
-    chi_grid = jnp.zeros_like(psi_grid)
-    psi_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(psi_grid)
-    chi_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(chi_grid)
+    lat_factor = jnp.cos(grid.lat2d)
+    u_target = 2.0 * wind_speed_levels[:, None, None] * lat_factor[None, :, :] ** 7
+    kx = jnp.fft.fftfreq(num.nlon) * 2 * jnp.pi / planet.a
+    ky = jnp.fft.fftfreq(num.nlat) * 2 * jnp.pi / planet.a
+    kx_grid = kx[None, : num.nlon // 2 + 1]
+    ky_grid = ky[:, None]
+    ikx = 1j * kx_grid
+    iky = 1j * ky_grid
+    denom = ky_grid ** 2 + kx_grid ** 2
+    denom = jnp.where(denom == 0, jnp.inf, denom)
+    psi_spec = []
+    chi_spec = []
+    for k in range(num.L):
+        u_hat = analysis_grid_to_spec(u_target[k], num.Lmax)
+        psi_hat = -u_hat * iky / denom
+        chi_hat = -u_hat * ikx / denom
+        psi_spec.append(psi_hat)
+        chi_spec.append(chi_hat)
+    psi_spec = jnp.stack(psi_spec)
+    chi_spec = jnp.stack(chi_spec)
     zeta_spec = jax.vmap(lambda x: lap_spec(x, num.nlat, num.nlon, planet.a))(psi_spec)
     div_spec = jax.vmap(lambda x: lap_spec(x, num.nlat, num.nlon, planet.a))(chi_spec)
     return ModelState(zeta=zeta_spec, div=div_spec, T=T_spec, lnps=lnps_spec)

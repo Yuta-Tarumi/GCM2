@@ -11,6 +11,7 @@ import xarray as xr
 
 from afes_venus_jax.grid import gaussian_grid
 from afes_venus_jax.spharm import invert_laplacian, synthesis_spec_to_grid, uv_from_psi_chi
+from afes_venus_jax.vertical import hydrostatic_geopotential, sigma_levels
 
 
 def write_netcdf_snapshot(state, t: float, path: str, num, planet):
@@ -19,11 +20,17 @@ def write_netcdf_snapshot(state, t: float, path: str, num, planet):
     div_g = np.asarray(jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(state.div))
     T_g = np.asarray(jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(state.T))
     lnps_g = np.asarray(synthesis_spec_to_grid(state.lnps, num.nlat, num.nlon))
+    sigma_full, sigma_half = sigma_levels(num.L)
+    ps_g = np.exp(lnps_g)
+    p_full = sigma_full[:, None, None] * ps_g[None, :, :]
+    Phi_g = np.asarray(hydrostatic_geopotential(T_g, ps_g, sigma_half, planet))
     ds = xr.Dataset(
         {
             "zeta": (("level", "lat", "lon"), zeta_g),
             "div": (("level", "lat", "lon"), div_g),
             "T": (("level", "lat", "lon"), T_g),
+            "p": (("level", "lat", "lon"), p_full),
+            "Phi": (("level", "lat", "lon"), Phi_g),
             "lnps": (("lat", "lon"), lnps_g),
         },
         coords={"level": np.arange(num.L), "lat": np.asarray(grid.lats), "lon": np.asarray(grid.lons)},
@@ -41,6 +48,8 @@ def plot_snapshot(state, t: float, step_idx: int, outdir: str, num, planet):
     v_panels = []
     T_panels = []
     p_panels = []
+    sigma_full, sigma_half = sigma_levels(num.L)
+    ps = jnp.exp(synthesis_spec_to_grid(state.lnps, num.nlat, num.nlon))
     psi_hat = jax.vmap(lambda z: invert_laplacian(z, num.nlat, num.nlon, planet.a))(state.zeta)
     chi_hat = jax.vmap(lambda d: invert_laplacian(d, num.nlat, num.nlon, planet.a))(state.div)
     for k in levels:
@@ -48,11 +57,11 @@ def plot_snapshot(state, t: float, step_idx: int, outdir: str, num, planet):
         div = synthesis_spec_to_grid(state.div[k], num.nlat, num.nlon)
         u, v = uv_from_psi_chi(psi_hat[k], chi_hat[k], num.nlat, num.nlon, planet.a)
         T = synthesis_spec_to_grid(state.T[k], num.nlat, num.nlon)
-        ps = jnp.exp(synthesis_spec_to_grid(state.lnps, num.nlat, num.nlon))
+        p_full = sigma_full[k] * ps
         u_panels.append(np.asarray(u))
         v_panels.append(np.asarray(v))
         T_panels.append(np.asarray(T))
-        p_panels.append(np.asarray(ps))
+        p_panels.append(np.asarray(p_full))
     fig, axes = plt.subplots(len(levels), 4, figsize=(12, 10), constrained_layout=True)
     for i, k in enumerate(levels):
         for j, (field, title, cmap) in enumerate(
