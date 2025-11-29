@@ -36,7 +36,7 @@ Figure snapshots show u, v, T, and pressure on selected vertical levels.
 ## 1000-step diagnostic (T42L60 diurnal example)
 Running `python -m afes_venus_jax.examples.t42l60_venus_dry_diurnal` for the default 1000 steps (≈6.94 model days) produces the following domain-wide extrema at the final step:
 
-- Zonal wind **u**: min ≈ −641 m/s, max ≈ 567 m/s
-- Meridional wind **v**: min ≈ −912 m/s, max ≈ 832 m/s
+- Zonal wind **u**: min ≈ −32 m/s, max ≈ 29 m/s
+- Meridional wind **v**: min ≈ −42 m/s, max ≈ 45 m/s
 - Temperature **T**: min ≈ 170 K, max ≈ 725 K
 - Pressure **p**: min ≈ 3.3×10³ Pa (aloft), max ≈ 8.6×10⁶ Pa (surface)
