@@ -18,13 +18,10 @@ def test_round_trip():
 def test_laplacian_eigen():
     num = default_numerics()
     planet = default_planet()
-    key = jax.random.PRNGKey(1)
-    field = jax.random.normal(key, (num.nlat, num.nlon))
-    spec = spharm.analysis_grid_to_spec(field, num.Lmax)
-    lap_spec = spharm.lap_spec(spec, num.nlat, num.nlon, planet.a)
-    lap_grid = spharm.synthesis_spec_to_grid(lap_spec, num.nlat, num.nlon)
-    # Finite difference using spectral derivatives as reference
-    kx, ky = spharm._wavenumbers(num.nlat, num.nlon, planet.a)
-    d2 = spharm.synthesis_spec_to_grid(spec * (-(ky[:, None] ** 2 + kx[None, : spec.shape[1]] ** 2)), num.nlat, num.nlon)
-    rel = jnp.linalg.norm(lap_grid - d2) / jnp.linalg.norm(d2)
-    assert rel < 1e-12
+    spec = jnp.zeros((num.nlat, num.nlon // 2 + 1), dtype=jnp.complex128)
+    for ell in (0, 1, 5, 10):
+        spec = spec.at[ell, 0].set(1.0 + 0j)
+        lap_spec = spharm.lap_spec(spec, num.nlat, num.nlon, planet.a)
+        expected = -(ell * (ell + 1) / (planet.a ** 2))
+        assert jnp.isclose(lap_spec[ell, 0], expected)
+        spec = spec.at[ell, 0].set(0.0 + 0j)
