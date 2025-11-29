@@ -7,7 +7,14 @@ import jax.numpy as jnp
 from afes_venus_jax.config import Planet, Numerics
 from afes_venus_jax.grid import gaussian_grid
 from afes_venus_jax.physics import diurnal_heating, newtonian_cooling
-from afes_venus_jax.spharm import analysis_grid_to_spec, synthesis_spec_to_grid, invert_laplacian, lap_spec, uv_from_psi_chi
+from afes_venus_jax.spharm import (
+    _wavenumbers,
+    analysis_grid_to_spec,
+    synthesis_spec_to_grid,
+    invert_laplacian,
+    lap_spec,
+    uv_from_psi_chi,
+)
 from afes_venus_jax.vertical import hydrostatic_geopotential, sigma_levels
 
 
@@ -45,11 +52,10 @@ def nonlinear_tendencies(state, t: float, num: Numerics, planet: Planet, grid=No
     coslat = jnp.cos(grid.lat2d)
     coslat_safe = jnp.where(jnp.abs(coslat) < 1e-6, 1e-6, coslat)
     f = 2 * planet.Omega * jnp.sin(grid.lat2d)
+    kx, ky = _wavenumbers(num.nlat, num.nlon, planet.a)
 
     def grad(field):
         spec = analysis_grid_to_spec(field, num.Lmax)
-        kx = jnp.fft.fftfreq(num.nlon) * 2 * jnp.pi / planet.a
-        ky = jnp.fft.fftfreq(num.nlat) * 2 * jnp.pi / planet.a
         ikx = 1j * kx[None, : spec.shape[1]]
         iky = 1j * ky[:, None]
         dlon = jnp.fft.irfft2(ikx * spec, s=(num.nlat, num.nlon))
