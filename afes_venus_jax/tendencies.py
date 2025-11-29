@@ -15,7 +15,12 @@ from afes_venus_jax.spharm import (
     lap_spec,
     uv_from_psi_chi,
 )
-from afes_venus_jax.vertical import hydrostatic_geopotential, sigma_levels
+from afes_venus_jax.vertical import (
+    hydrostatic_geopotential,
+    level_altitudes,
+    sigma_levels,
+    vertical_diffusion,
+)
 
 
 def spectral_to_grid(state, num: Numerics, planet: Planet, grid=None):
@@ -46,6 +51,7 @@ def spectral_to_grid(state, num: Numerics, planet: Planet, grid=None):
 def nonlinear_tendencies(state, t: float, num: Numerics, planet: Planet, grid=None):
     grid = grid or gaussian_grid(num.nlat, num.nlon)
     zeta_g, div_g, T_g, lnps_g, u, v, Phi, ps = spectral_to_grid(state, num, planet, grid)
+    _, z_half = level_altitudes(num.L)
     Phi_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(Phi)
     lap_Phi_spec = jax.vmap(lambda x: lap_spec(x, num.nlat, num.nlon, planet.a))(Phi_spec)
     lap_Phi = jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(lap_Phi_spec)
@@ -78,6 +84,9 @@ def nonlinear_tendencies(state, t: float, num: Numerics, planet: Planet, grid=No
     zeta_dot = jnp.stack(zeta_dot)
     div_dot = jnp.stack(div_dot)
     T_dot = jnp.stack(T_adv)
+    # vertical coupling via diffusive fluxes
+    div_dot = div_dot + vertical_diffusion(div_g, z_half, num.kappa_v)
+    T_dot = T_dot + vertical_diffusion(T_g, z_half, num.kappa_v)
     # physics
     T_dot = T_dot + diurnal_heating(T_g, grid, t, planet, num) + newtonian_cooling(T_g, num)
     lnps_dot = -jnp.mean(div_g, axis=0)

@@ -19,7 +19,7 @@ def main():
     t = 0.0
     outdir = pathlib.Path("outputs")
     outdir.mkdir(exist_ok=True)
-    nsteps = 1000
+    nsteps = 500
     snapshot_steps = {0, nsteps - 1}
     snapshot_steps.add(nsteps)
 

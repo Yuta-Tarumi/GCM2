@@ -48,3 +48,28 @@ def hydrostatic_geopotential(T: jnp.ndarray, ps: jnp.ndarray, sigma_half: jnp.nd
     dPhi = -R * Tv * jnp.log(p_half[1:, :, :] / p_half[:-1, :, :])
     Phi = jnp.cumsum(dPhi[::-1, :, :], axis=0)[::-1, :, :]
     return Phi
+
+
+@jax.jit
+def vertical_diffusion(field: jnp.ndarray, z_half: jnp.ndarray, kappa_v: float):
+    """Simple vertical diffusion to couple neighbouring layers.
+
+    Parameters
+    ----------
+    field: [L, nlat, nlon]
+        Quantity defined on full levels.
+    z_half: [L+1]
+        Altitude of half levels (m) used to compute layer thickness.
+    kappa_v: float
+        Constant vertical diffusivity (m^2/s).
+    """
+
+    dz_full = jnp.diff(z_half)
+    # interface spacing uses the mean of neighboring layer thicknesses
+    dz_interface = 0.5 * (dz_full[:-1] + dz_full[1:])
+
+    grad = (field[1:, ...] - field[:-1, ...]) / dz_interface[:, None, None]
+    flux = jnp.zeros((field.shape[0] + 1,) + field.shape[1:])
+    flux = flux.at[1:-1, ...].set(-kappa_v * grad)
+    tendency = -(flux[1:, ...] - flux[:-1, ...]) / dz_full[:, None, None]
+    return tendency
