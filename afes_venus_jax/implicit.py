@@ -13,7 +13,6 @@ import jax
 import jax.numpy as jnp
 
 from afes_venus_jax.config import Planet, Numerics
-from afes_venus_jax.spharm import _wavenumbers
 
 
 def si_matrices(num: Numerics, planet: Planet):
@@ -46,8 +45,8 @@ def si_solve(state, rhs, num: Numerics, planet: Planet, mats=None):
     c2 = planet.R_gas * T_ref
 
     # Spectral Helmholtz operator for the Laplacian eigenvalues.
-    kx, ky = _wavenumbers(num.nlat, num.nlon, planet.a)
-    lam = ky[:, None] ** 2 + kx[None, : div_rhs.shape[2]] ** 2
+    ell = jnp.arange(num.nlat)
+    lam = (ell * (ell + 1) / (planet.a ** 2))[:, None]
     alpha_dt = num.alpha * num.dt
 
     mean_div_rhs = jnp.mean(div_rhs, axis=0)

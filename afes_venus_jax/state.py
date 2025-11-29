@@ -9,7 +9,7 @@ import jax.numpy as jnp
 
 from afes_venus_jax.config import Planet, Numerics, default_planet, default_numerics
 from afes_venus_jax.grid import gaussian_grid
-from afes_venus_jax.spharm import analysis_grid_to_spec, lap_spec
+from afes_venus_jax.spharm import _angular_wavenumbers, analysis_grid_to_spec, lap_spec
 from afes_venus_jax.vertical import sigma_levels, level_altitudes
 
 
@@ -63,10 +63,9 @@ def initial_state_T_profile(num: Numerics | None = None, planet: Planet | None =
     wind_speed_levels = peak_speed * jnp.minimum(z_full / peak_height, 1.0)
     lat_factor = jnp.cos(grid.lat2d)
     u_target = 2.0 * wind_speed_levels[:, None, None] * lat_factor[None, :, :] ** 7
-    kx = jnp.fft.fftfreq(num.nlon) * 2 * jnp.pi / planet.a
-    ky = jnp.fft.fftfreq(num.nlat) * 2 * jnp.pi / planet.a
-    kx_grid = kx[None, : num.nlon // 2 + 1]
-    ky_grid = ky[:, None]
+    ell_like, m = _angular_wavenumbers(num.nlat, num.nlon)
+    kx_grid = m[None, : num.nlon // 2 + 1]
+    ky_grid = ell_like[:, None]
     ikx = 1j * kx_grid
     iky = 1j * ky_grid
     denom = ky_grid ** 2 + kx_grid ** 2

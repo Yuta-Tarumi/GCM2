@@ -35,13 +35,13 @@ Figure snapshots show u, v, T, and pressure on selected vertical levels.
 
 ## 500-step diagnostic (T42L60 diurnal example)
 Running `python -m afes_venus_jax.examples.t42l60_venus_dry_diurnal` for the default 500 steps (≈3.5 model days) produces the following domain-wide extrema at the final step:
-- Zonal wind **u**: min ≈ −641 m/s, max ≈ 567 m/s
-- Meridional wind **v**: min ≈ −912 m/s, max ≈ 832 m/s
-- Temperature **T**: min ≈ 170 K, max ≈ 725 K
-- Pressure **p**: min ≈ 3.3×10³ Pa (aloft), max ≈ 8.6×10⁶ Pa (surface)
+- Zonal wind **u**: min ≈ −1.35×10⁵ m/s, max ≈ 1.36×10⁵ m/s
+- Meridional wind **v**: min ≈ −5.95×10³ m/s, max ≈ 5.93×10³ m/s
+- Temperature **T**: min ≈ 170 K, max ≈ 755 K
+- Pressure **p**: min ≈ 4.5×10² Pa (aloft), max ≈ 1.22×10⁶ Pa (surface)
 
 ## Why the pressure gradient and winds blow up
 - **Surface-pressure equation lacks advection:** the surface-pressure tendency uses only the column-mean divergence (`lnps_dot = -mean(div)`) with no horizontal advection or filtering, so any column convergence piles mass up locally while nothing transports it away. That allows `ps` to diverge by orders of magnitude until the hard log-pressure clamp is hit, producing large latitudinal gradients that then feed the hydrostatic pressure field on every level.【F:afes_venus_jax/tendencies.py†L56-L87】【F:afes_venus_jax/timestep.py†L32-L57】
 - **Semi-implicit gravity-wave coupling is disabled:** the Helmholtz step that normally couples divergence, temperature, and surface pressure is bypassed; the model integrates everything explicitly and only applies a weak Robert–Asselin filter. Without the implicit damping, fast gravity-wave modes freely amplify pressure gradients and winds when the explicit step becomes marginally stable.【F:afes_venus_jax/timestep.py†L14-L57】
-- **Horizontal derivatives ignore spherical geometry:** gradient, Laplacian, and Helmholtz operators use plain FFT wavenumbers on the latitude–longitude grid rather than true spherical harmonics. Metrics such as 1/`cos(lat)` are only partially handled, so the pressure-gradient force and advection terms are mis-scaled—especially at high latitudes—letting u and v attain unrealistically large values.【F:afes_venus_jax/spharm.py†L1-L57】【F:afes_venus_jax/tendencies.py†L34-L70】
+- **Horizontal derivatives now include spherical metrics:** gradient, Laplacian, and Helmholtz operators apply the harmonic eigenvalue ℓ(ℓ+1)/`a²` and 1/(`a cosφ`) factors so pressure-gradient and advection terms use consistent spherical scaling. Winds still blow up because mass is not advected and the fast modes remain explicit, but the geometric mis-scaling has been removed.【F:afes_venus_jax/spharm.py†L1-L101】【F:afes_venus_jax/tendencies.py†L51-L85】
 
