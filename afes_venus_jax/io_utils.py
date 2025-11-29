@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pathlib
-from typing import Sequence
 
 import jax
 import jax.numpy as jnp
@@ -22,10 +21,10 @@ def write_netcdf_snapshot(state, t: float, path: str, num, planet):
     lnps_g = np.asarray(synthesis_spec_to_grid(state.lnps, num.nlat, num.nlon))
     ds = xr.Dataset(
         {
-            "zeta": ("level", "lat", "lon", zeta_g),
-            "div": ("level", "lat", "lon", div_g),
-            "T": ("level", "lat", "lon", T_g),
-            "lnps": ("lat", "lon", lnps_g),
+            "zeta": (("level", "lat", "lon"), zeta_g),
+            "div": (("level", "lat", "lon"), div_g),
+            "T": (("level", "lat", "lon"), T_g),
+            "lnps": (("lat", "lon"), lnps_g),
         },
         coords={"level": np.arange(num.L), "lat": np.asarray(grid.lats), "lon": np.asarray(grid.lons)},
     )

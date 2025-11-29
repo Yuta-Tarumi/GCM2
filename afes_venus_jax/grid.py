@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Tuple
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from numpy.polynomial.legendre import leggauss
@@ -15,6 +16,7 @@ def _gaussian_latitudes(nlat: int):
     return lats[::-1], w[::-1]
 
 
+@jax.tree_util.register_pytree_node_class
 @dataclass
 class Grid:
     lats: jnp.ndarray
@@ -22,6 +24,15 @@ class Grid:
     weights: jnp.ndarray
     lat2d: jnp.ndarray
     lon2d: jnp.ndarray
+
+    def tree_flatten(self):
+        children = (self.lats, self.lons, self.weights, self.lat2d, self.lon2d)
+        return children, None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        lats, lons, weights, lat2d, lon2d = children
+        return cls(lats=lats, lons=lons, weights=weights, lat2d=lat2d, lon2d=lon2d)
 
 
 def gaussian_grid(nlat: int, nlon: int) -> Grid:

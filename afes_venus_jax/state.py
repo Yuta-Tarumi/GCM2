@@ -13,6 +13,7 @@ from afes_venus_jax.spharm import analysis_grid_to_spec
 from afes_venus_jax.vertical import sigma_levels, level_altitudes
 
 
+@jax.tree_util.register_pytree_node_class
 @dataclass
 class ModelState:
     zeta: jnp.ndarray  # [L, nlat, nlon//2+1]
@@ -22,6 +23,15 @@ class ModelState:
 
     def copy(self):
         return ModelState(self.zeta.copy(), self.div.copy(), self.T.copy(), self.lnps.copy())
+
+    def tree_flatten(self):
+        children = (self.zeta, self.div, self.T, self.lnps)
+        return children, None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        zeta, div, T, lnps = children
+        return cls(zeta=zeta, div=div, T=T, lnps=lnps)
 
 
 @partial(jax.jit, static_argnums=(0,))

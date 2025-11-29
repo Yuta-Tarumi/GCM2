@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 
 
-@dataclass
+@dataclass(frozen=True)
 class Planet:
     """Physical constants for Venus (SI units)."""
 
@@ -25,7 +25,7 @@ class Planet:
         return self.Ru / self.M_CO2
 
 
-@dataclass
+@dataclass(frozen=True)
 class Numerics:
     """Discretization and time-stepping parameters."""
 
