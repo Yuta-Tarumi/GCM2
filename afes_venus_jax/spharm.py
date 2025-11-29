@@ -38,21 +38,26 @@ def _angular_wavenumbers(nlat: int, nlon: int) -> tuple[jnp.ndarray, jnp.ndarray
     """
 
     m = jnp.fft.rfftfreq(nlon, d=2 * jnp.pi / nlon) * 2 * jnp.pi
-    ell_like = jnp.arange(nlat)
-    return ell_like, m
+    # Treat latitude sampling as equally spaced in φ with spacing π / nlat.
+    # ``fftfreq`` returns signed frequencies (positive then negative) so the
+    # second half of the spectrum correctly represents negative ky rather than
+    # large positive wavenumbers.
+    dphi = jnp.pi / nlat
+    ky = jnp.fft.fftfreq(nlat, d=dphi) * 2 * jnp.pi
+    return ky, m
 
 
 @functools.partial(jax.jit, static_argnums=(1, 2, 3))
 def lap_spec(flm: jnp.ndarray, nlat: int, nlon: int, a: float) -> jnp.ndarray:
     ell_like, _ = _angular_wavenumbers(nlat, nlon)
-    ell_grid = ell_like[:, None]
+    ell_grid = jnp.abs(ell_like)[:, None]
     return -(ell_grid * (ell_grid + 1.0) / (a ** 2)) * flm
 
 
 @functools.partial(jax.jit, static_argnums=(1, 2, 3))
 def invert_laplacian(flm: jnp.ndarray, nlat: int, nlon: int, a: float) -> jnp.ndarray:
     ell_like, _ = _angular_wavenumbers(nlat, nlon)
-    ell_grid = ell_like[:, None]
+    ell_grid = jnp.abs(ell_like)[:, None]
     denom = ell_grid * (ell_grid + 1.0) / (a ** 2)
     denom = jnp.where(denom == 0, jnp.inf, denom)
     return flm / (-denom)

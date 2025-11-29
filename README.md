@@ -35,10 +35,10 @@ Figure snapshots show u, v, T, and pressure on selected vertical levels.
 
 ## 500-step diagnostic (T42L60 diurnal example)
 Running `python -m afes_venus_jax.examples.t42l60_venus_dry_diurnal` for the default 500 steps (≈3.5 model days) produces the following domain-wide extrema at the final step:
-- Zonal wind **u**: min ≈ −1.35×10⁵ m/s, max ≈ 1.36×10⁵ m/s
-- Meridional wind **v**: min ≈ −5.95×10³ m/s, max ≈ 5.93×10³ m/s
+- Zonal wind **u**: min ≈ −3.81×10⁴ m/s, max ≈ 4.08×10⁴ m/s
+- Meridional wind **v**: min ≈ −1.98×10³ m/s, max ≈ 2.06×10³ m/s
 - Temperature **T**: min ≈ 170 K, max ≈ 755 K
-- Pressure **p**: min ≈ 4.5×10² Pa (aloft), max ≈ 1.22×10⁶ Pa (surface)
+- Pressure **p**: min ≈ 4.47×10² Pa (aloft), max ≈ 6.37×10⁷ Pa (surface)
 
 ## Why the pressure gradient and winds blow up
 - **Surface-pressure equation lacks advection:** the surface-pressure tendency uses only the column-mean divergence (`lnps_dot = -mean(div)`) with no horizontal advection or filtering, so any column convergence piles mass up locally while nothing transports it away. That allows `ps` to diverge by orders of magnitude until the hard log-pressure clamp is hit, producing large latitudinal gradients that then feed the hydrostatic pressure field on every level.【F:afes_venus_jax/tendencies.py†L56-L87】【F:afes_venus_jax/timestep.py†L32-L57】
