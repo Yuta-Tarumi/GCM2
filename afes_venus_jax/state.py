@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -23,7 +24,7 @@ class ModelState:
         return ModelState(self.zeta.copy(), self.div.copy(), self.T.copy(), self.lnps.copy())
 
 
-@jax.jit(static_argnums=(0,))
+@partial(jax.jit, static_argnums=(0,))
 def initial_temperature_profile(L: int):
     z_full, _ = level_altitudes(L)
     T0 = 730.0 - (730.0 - 170.0) * (z_full / z_full[-1])

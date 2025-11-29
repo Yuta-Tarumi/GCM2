@@ -7,7 +7,10 @@ import jax.numpy as jnp
 from afes_venus_jax.config import Planet
 
 
-@jax.jit(static_argnums=(0,))
+from functools import partial
+
+
+@partial(jax.jit, static_argnums=(0,))
 def sigma_levels(L: int):
     z_half = jnp.linspace(0.0, 120e3, L + 1)
     H_ref = 15_000.0
@@ -16,7 +19,7 @@ def sigma_levels(L: int):
     return sigma_full, sigma_half
 
 
-@jax.jit(static_argnums=(0,))
+@partial(jax.jit, static_argnums=(0,))
 def level_altitudes(L: int):
     z_half = jnp.linspace(0.0, 120e3, L + 1)
     z_full = 0.5 * (z_half[:-1] + z_half[1:])
