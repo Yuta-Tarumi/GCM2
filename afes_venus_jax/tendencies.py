@@ -8,7 +8,12 @@ from afes_venus_jax.config import Planet, Numerics
 from afes_venus_jax.grid import gaussian_grid
 from afes_venus_jax.physics import diurnal_heating, newtonian_cooling
 from afes_venus_jax.spharm import analysis_grid_to_spec, synthesis_spec_to_grid, invert_laplacian, lap_spec, uv_from_psi_chi
-from afes_venus_jax.vertical import hydrostatic_geopotential, sigma_levels
+from afes_venus_jax.vertical import (
+    hydrostatic_geopotential,
+    level_altitudes,
+    sigma_levels,
+    vertical_diffusion,
+)
 
 
 def spectral_to_grid(state, num: Numerics, planet: Planet, grid=None):
