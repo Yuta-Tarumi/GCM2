@@ -4,5 +4,6 @@ numpy
 scipy
 xarray
 netcdf4
+matplotlib
 s2fft>=4.0.0
 pytest

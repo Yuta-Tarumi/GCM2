@@ -1,72 +1,72 @@
-"""Explicit nonlinear and physics tendencies in grid space."""
+"""Eulerian tendencies for vorticity–divergence form."""
 from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
 
-from .config import Planet, Numerics
-from .grid import gaussian_grid
-from .spharm import analysis_grid_to_spec, synthesis_spec_to_grid, psi_chi_from_zeta_div, uv_from_psi_chi, laplace_fac
-from .vertical import hydrostatic_geopotential, sigma_levels
-from .physics import diurnal_heating, newtonian_cooling
+from afes_venus_jax.config import Planet, Numerics
+from afes_venus_jax.grid import gaussian_grid
+from afes_venus_jax.physics import diurnal_heating, newtonian_cooling
+from afes_venus_jax.spharm import analysis_grid_to_spec, synthesis_spec_to_grid, invert_laplacian, uv_from_psi_chi
+from afes_venus_jax.vertical import hydrostatic_geopotential, sigma_levels
 
 
-def spectral_to_grid(state, num: Numerics):
-    zeta = synthesis_spec_to_grid(state.zeta, num)
-    div = synthesis_spec_to_grid(state.div, num)
-    T = synthesis_spec_to_grid(state.T, num)
-    lnps = synthesis_spec_to_grid(state.lnps, num)
-    return zeta, div, T, lnps
+def spectral_to_grid(state, num: Numerics, planet: Planet, grid=None):
+    grid = grid or gaussian_grid(num.nlat, num.nlon)
+    zeta_g = jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(state.zeta)
+    div_g = jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(state.div)
+    T_g = jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(state.T)
+    lnps_g = synthesis_spec_to_grid(state.lnps, num.nlat, num.nlon)
+    psi_hat = jax.vmap(lambda z: invert_laplacian(z, num.nlat, num.nlon, planet.a))(state.zeta)
+    chi_hat = jax.vmap(lambda d: invert_laplacian(d, num.nlat, num.nlon, planet.a))(state.div)
+    u = []
+    v = []
+    for k in range(num.L):
+        uk, vk = uv_from_psi_chi(psi_hat[k], chi_hat[k], num.nlat, num.nlon, planet.a)
+        u.append(uk)
+        v.append(vk)
+    u = jnp.stack(u, axis=0)
+    v = jnp.stack(v, axis=0)
+    sigma_full, sigma_half = sigma_levels(num.L)
+    ps = jnp.exp(lnps_g)
+    Phi = hydrostatic_geopotential(T_g, ps, sigma_half, planet)
+    return zeta_g, div_g, T_g, lnps_g, u, v, Phi, ps
 
 
-def grid_to_spectral(zeta, div, T, lnps, num: Numerics):
-    return (
-        analysis_grid_to_spec(zeta, num),
-        analysis_grid_to_spec(div, num),
-        analysis_grid_to_spec(T, num),
-        analysis_grid_to_spec(lnps, num),
-    )
+def nonlinear_tendencies(state, t: float, num: Numerics, planet: Planet, grid=None):
+    grid = grid or gaussian_grid(num.nlat, num.nlon)
+    zeta_g, div_g, T_g, lnps_g, u, v, Phi, ps = spectral_to_grid(state, num, planet, grid)
+    coslat = jnp.cos(grid.lat2d)
+    f = 2 * planet.Omega * jnp.sin(grid.lat2d)
+    # simple advective derivatives via spectral gradients
+    def grad(field):
+        spec = analysis_grid_to_spec(field, num.Lmax)
+        kx = jnp.fft.fftfreq(num.nlon) * 2 * jnp.pi / planet.a
+        ky = jnp.fft.fftfreq(num.nlat) * 2 * jnp.pi / planet.a
+        ikx = 1j * kx[None, : spec.shape[1]]
+        iky = 1j * ky[:, None]
+        dlon = jnp.fft.irfft2(ikx * spec, s=(num.nlat, num.nlon))
+        dlat = jnp.fft.irfft2(iky * spec, s=(num.nlat, num.nlon))
+        return dlon, dlat
 
-
-def nonlinear_tendencies(state, t: float, planet: Planet, num: Numerics):
-    grid = gaussian_grid(num.nlat, num.nlon)
-    sigma_full, _, _ = sigma_levels(num)
-
-    zeta_g, div_g, T_g, lnps_g = spectral_to_grid(state, num)
-    psi, chi = psi_chi_from_zeta_div(state.zeta, state.div, num, planet)
-    u, v = uv_from_psi_chi(psi, chi, num, planet)
-
-    phi = hydrostatic_geopotential(T_g, lnps_g, planet, num)
-
-    # Horizontal derivatives via spectral multiplication
-    def ddx(f):
-        spec = analysis_grid_to_spec(f, num)
-        kx = 1j * 2 * jnp.pi * jnp.fft.fftfreq(num.nlon)
-        return synthesis_spec_to_grid(spec * kx[None, :], num)
-
-    def ddy(f):
-        spec = analysis_grid_to_spec(f, num)
-        ky = 1j * 2 * jnp.pi * jnp.fft.fftfreq(num.nlat)
-        return synthesis_spec_to_grid(spec * ky[:, None], num)
-
-    zeta_tend = -(u * ddx(zeta_g) + v * ddy(zeta_g))
-    phi_spec = analysis_grid_to_spec(phi, num)
-    div_tend = -(u * ddx(div_g) + v * ddy(div_g)) + synthesis_spec_to_grid(
-        -laplace_fac(phi_spec, num, planet), num
-    )
-    T_tend = -(u * ddx(T_g) + v * ddy(T_g))
-    lnps_tend = jnp.zeros_like(state.lnps)
-
-    # Physics tendencies
-    z_full, _ = hydrostatic_levels(num)
-    Q = diurnal_heating(grid.lat2d, grid.lon2d, z_full, t, planet, num)
-    cool = newtonian_cooling(T_g, planet, num)
-    T_tend = T_tend + Q + cool
-
-    return grid_to_spectral(zeta_tend, div_tend, T_tend, lnps_tend, num)
-
-
-def hydrostatic_levels(num: Numerics):
-    sigma_full, _, z_half = sigma_levels(num)
-    z_full = 0.5 * (z_half[:-1] + z_half[1:])
-    return z_full, sigma_full
+    zeta_dot = []
+    div_dot = []
+    T_dot = []
+    for k in range(num.L):
+        du_dlon, du_dlat = grad(u[k])
+        dv_dlon, dv_dlat = grad(v[k])
+        zeta_dot.append(-(u[k] * (zeta_g[k] + f) / coslat + v[k] * jnp.gradient(zeta_g[k] + f, grid.lats, axis=0)))
+        div_dot.append(-(u[k] * du_dlon / coslat + v[k] * dv_dlat + (zeta_g[k] + f) * v[k] / coslat))
+        Tadv_lon, Tadv_lat = grad(T_g[k])
+        T_dot.append(-(u[k] * Tadv_lon / coslat + v[k] * Tadv_lat))
+    zeta_dot = jnp.stack(zeta_dot)
+    div_dot = jnp.stack(div_dot)
+    T_dot = jnp.stack(T_dot)
+    # physics
+    T_dot = T_dot + diurnal_heating(T_g, grid, t, planet, num) + newtonian_cooling(T_g, num)
+    lnps_dot = -jnp.mean(div_g, axis=0)
+    zeta_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(zeta_dot)
+    div_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(div_dot)
+    T_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(T_dot)
+    lnps_spec = analysis_grid_to_spec(lnps_dot, num.Lmax)
+    return zeta_spec, div_spec, T_spec, lnps_spec

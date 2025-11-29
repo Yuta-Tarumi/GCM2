@@ -38,7 +38,7 @@ class Numerics:
     ra: float = 0.05
     tau_hdiff: float = 0.1 * 86400.0
     order_hdiff: int = 4
-    sponge_top_k: int = 10
+    sponge_top_k: int = 8
     tau_rad_surface_days: float = 30.0
     tau_rad_cloud_days: float = 10.0
     tau_rad_upper_days: float = 5.0

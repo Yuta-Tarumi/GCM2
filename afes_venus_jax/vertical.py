@@ -1,48 +1,47 @@
-"""Sigma-coordinate vertical utilities and hydrostatic geopotential."""
+"""Vertical σ-grid utilities and hydrostatic integration."""
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 
-from .config import Numerics, Planet
+from afes_venus_jax.config import Planet
 
 
-def sigma_levels(num: Numerics):
-    z_half = jnp.linspace(0.0, 120_000.0, num.L + 1)
+@jax.jit
+def sigma_levels(L: int):
+    z_half = jnp.linspace(0.0, 120e3, L + 1)
     H_ref = 15_000.0
     sigma_half = jnp.exp(-z_half / H_ref)
     sigma_full = 0.5 * (sigma_half[:-1] + sigma_half[1:])
-    return sigma_full, sigma_half, z_half
+    return sigma_full, sigma_half
 
 
-def reference_temperature_profile(num: Numerics):
-    _, _, z_half = sigma_levels(num)
+@jax.jit
+def level_altitudes(L: int):
+    z_half = jnp.linspace(0.0, 120e3, L + 1)
     z_full = 0.5 * (z_half[:-1] + z_half[1:])
-    return z_full, jnp.linspace(730.0, 170.0, num.L)
+    return z_full, z_half
 
 
-def hydrostatic_geopotential(T: jnp.ndarray, lnps: jnp.ndarray, planet: Planet, num: Numerics) -> jnp.ndarray:
-    """Integrate hydrostatic balance to obtain geopotential on full levels."""
+@jax.jit
+def hydrostatic_geopotential(T: jnp.ndarray, ps: jnp.ndarray, sigma_half: jnp.ndarray, planet: Planet):
+    """Integrate hydrostatic balance to obtain geopotential on full levels.
 
-    sigma_full, sigma_half, _ = sigma_levels(num)
-    ps = jnp.exp(lnps)
-    p_full = sigma_full[:, None, None] * ps[None, :, :]
-    p_half = sigma_half[:, None, None] * ps[None, :, :]
+    Parameters
+    ----------
+    T: [L, nlat, nlon] temperature
+    ps: [nlat, nlon] surface pressure
+    sigma_half: [L+1] sigma at half levels
+    """
 
-    # Simmons–Burridge style coefficients
-    delta_sigma = jnp.diff(sigma_half)
-    ak = delta_sigma[:, None, None]
-    bk = jnp.log(p_half[1:, ...] / p_half[:-1, ...])
-    # integrate downward
-    phi = jnp.zeros((num.L, ps.shape[0], ps.shape[1]))
-    running = jnp.zeros_like(ps)
-    for k in range(num.L - 1, -1, -1):
-        lapse = planet.R_gas * T[k]
-        running = running + lapse * bk[k]
-        phi = phi.at[k].set(running)
-    return phi
-
-
-def temperature_to_sigma_profile(Tz_func, num: Numerics):
-    _, _, z_half = sigma_levels(num)
-    z_full = 0.5 * (z_half[:-1] + z_half[1:])
-    return z_full, Tz_func(z_full)
+    R = planet.R_gas
+    g = planet.g
+    L = T.shape[0]
+    # pressure at half levels
+    p_half = ps[None, :, :] * sigma_half[:, None, None]
+    dp = jnp.diff(p_half, axis=0)
+    Tv = T  # dry atmosphere
+    # Simmons–Burridge coefficients approximated with midpoint rule
+    dPhi = -R * Tv * jnp.log(p_half[1:, :, :] / p_half[:-1, :, :])
+    Phi = jnp.cumsum(dPhi[::-1, :, :], axis=0)[::-1, :, :]
+    return Phi

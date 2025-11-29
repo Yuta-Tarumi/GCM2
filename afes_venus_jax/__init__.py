@@ -1,10 +1,3 @@
-"""AFES-Venus style hydrostatic primitive-equation spectral core in JAX."""
-from .config import Planet, Numerics
-from .state import ModelState, make_initial_state
-
-__all__ = [
-    "Planet",
-    "Numerics",
-    "ModelState",
-    "make_initial_state",
-]
+"""AFES-style Venus hydrostatic spectral core in JAX."""
+from afes_venus_jax.config import Planet, Numerics, default_planet, default_numerics
+from afes_venus_jax.state import ModelState, initial_state_T_profile
