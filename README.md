@@ -40,3 +40,8 @@ Running `python -m afes_venus_jax.examples.t42l60_venus_dry_diurnal` for the def
 - Temperature **T**: min ≈ 170 K, max ≈ 725 K
 - Pressure **p**: min ≈ 3.3×10³ Pa (aloft), max ≈ 8.6×10⁶ Pa (surface)
 
+## Why the pressure gradient and winds blow up
+- **Surface-pressure equation lacks advection:** the surface-pressure tendency uses only the column-mean divergence (`lnps_dot = -mean(div)`) with no horizontal advection or filtering, so any column convergence piles mass up locally while nothing transports it away. That allows `ps` to diverge by orders of magnitude until the hard log-pressure clamp is hit, producing large latitudinal gradients that then feed the hydrostatic pressure field on every level.【F:afes_venus_jax/tendencies.py†L56-L87】【F:afes_venus_jax/timestep.py†L32-L57】
+- **Semi-implicit gravity-wave coupling is disabled:** the Helmholtz step that normally couples divergence, temperature, and surface pressure is bypassed; the model integrates everything explicitly and only applies a weak Robert–Asselin filter. Without the implicit damping, fast gravity-wave modes freely amplify pressure gradients and winds when the explicit step becomes marginally stable.【F:afes_venus_jax/timestep.py†L14-L57】
+- **Horizontal derivatives ignore spherical geometry:** gradient, Laplacian, and Helmholtz operators use plain FFT wavenumbers on the latitude–longitude grid rather than true spherical harmonics. Metrics such as 1/`cos(lat)` are only partially handled, so the pressure-gradient force and advection terms are mis-scaled—especially at high latitudes—letting u and v attain unrealistically large values.【F:afes_venus_jax/spharm.py†L1-L57】【F:afes_venus_jax/tendencies.py†L34-L70】
+
