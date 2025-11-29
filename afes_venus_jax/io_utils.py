@@ -10,7 +10,7 @@ import numpy as np
 import xarray as xr
 
 from afes_venus_jax.grid import gaussian_grid
-from afes_venus_jax.spharm import synthesis_spec_to_grid
+from afes_venus_jax.spharm import invert_laplacian, synthesis_spec_to_grid, uv_from_psi_chi
 
 
 def write_netcdf_snapshot(state, t: float, path: str, num, planet):
@@ -41,13 +41,12 @@ def plot_snapshot(state, t: float, step_idx: int, outdir: str, num, planet):
     v_panels = []
     T_panels = []
     p_panels = []
-    psi_hat = jax.vmap(lambda z: jnp.fft.irfft2(z, s=(num.nlat, num.nlon)))(state.zeta)
-    chi_hat = jax.vmap(lambda d: jnp.fft.irfft2(d, s=(num.nlat, num.nlon)))(state.div)
+    psi_hat = jax.vmap(lambda z: invert_laplacian(z, num.nlat, num.nlon, planet.a))(state.zeta)
+    chi_hat = jax.vmap(lambda d: invert_laplacian(d, num.nlat, num.nlon, planet.a))(state.div)
     for k in levels:
         zeta = synthesis_spec_to_grid(state.zeta[k], num.nlat, num.nlon)
         div = synthesis_spec_to_grid(state.div[k], num.nlat, num.nlon)
-        u = synthesis_spec_to_grid(state.zeta[k], num.nlat, num.nlon)
-        v = synthesis_spec_to_grid(state.div[k], num.nlat, num.nlon)
+        u, v = uv_from_psi_chi(psi_hat[k], chi_hat[k], num.nlat, num.nlon, planet.a)
         T = synthesis_spec_to_grid(state.T[k], num.nlat, num.nlon)
         ps = jnp.exp(synthesis_spec_to_grid(state.lnps, num.nlat, num.nlon))
         u_panels.append(np.asarray(u))

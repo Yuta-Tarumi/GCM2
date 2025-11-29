@@ -19,14 +19,17 @@ def main():
     t = 0.0
     outdir = pathlib.Path("outputs")
     outdir.mkdir(exist_ok=True)
-    nsteps = 50
+    nsteps = 500
+    snapshot_steps = {0, nsteps - 1}
     for n in range(nsteps):
         state = step(state, t, num, planet)
         t += num.dt
-        if n % 10 == 0:
+        if n in snapshot_steps:
             print(f"step {n}, t={t/86400:.2f} days")
             plot_snapshot(state, t, n, outdir, num, planet)
             write_netcdf_snapshot(state, t, outdir / f"snapshot_{n:05d}.nc", num, planet)
+        elif (n + 1) % 50 == 0:
+            print(f"step {n}, t={t/86400:.2f} days")
     write_netcdf_snapshot(state, t, outdir / "final.nc", num, planet)
     plot_snapshot(state, t, nsteps, outdir, num, planet)
 

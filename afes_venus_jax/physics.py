@@ -1,6 +1,8 @@
 """Diurnal solar heating and Newtonian cooling for Venus."""
 from __future__ import annotations
 
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 
@@ -12,7 +14,7 @@ def subsolar_longitude(t: float, planet: Planet) -> float:
     return planet.diurnal_phase0 if hasattr(planet, "diurnal_phase0") else 0.0 + 2 * jnp.pi * t / planet.solar_day
 
 
-@jax.jit(static_argnums=(3, 4))
+@partial(jax.jit, static_argnums=(3, 4))
 def diurnal_heating(T: jnp.ndarray, grid, t: float, planet: Planet, num: Numerics):
     z_full, _ = level_altitudes(num.L)
     lam_sun = 2 * jnp.pi * t / planet.solar_day + num.diurnal_phase0
@@ -21,7 +23,7 @@ def diurnal_heating(T: jnp.ndarray, grid, t: float, planet: Planet, num: Numeric
     return A * mu[None, :, :]
 
 
-@jax.jit(static_argnums=(1,))
+@partial(jax.jit, static_argnums=(1,))
 def newtonian_cooling(T: jnp.ndarray, num: Numerics):
     z_full, _ = level_altitudes(num.L)
     Teq = 730.0 - (730.0 - 170.0) * (z_full / z_full[-1])

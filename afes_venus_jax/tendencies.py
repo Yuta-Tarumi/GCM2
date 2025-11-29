@@ -37,8 +37,9 @@ def nonlinear_tendencies(state, t: float, num: Numerics, planet: Planet, grid=No
     grid = grid or gaussian_grid(num.nlat, num.nlon)
     zeta_g, div_g, T_g, lnps_g, u, v, Phi, ps = spectral_to_grid(state, num, planet, grid)
     coslat = jnp.cos(grid.lat2d)
+    coslat_safe = jnp.where(jnp.abs(coslat) < 1e-6, 1e-6, coslat)
     f = 2 * planet.Omega * jnp.sin(grid.lat2d)
-    # simple advective derivatives via spectral gradients
+
     def grad(field):
         spec = analysis_grid_to_spec(field, num.Lmax)
         kx = jnp.fft.fftfreq(num.nlon) * 2 * jnp.pi / planet.a
@@ -51,17 +52,20 @@ def nonlinear_tendencies(state, t: float, num: Numerics, planet: Planet, grid=No
 
     zeta_dot = []
     div_dot = []
-    T_dot = []
+    T_adv = []
     for k in range(num.L):
-        du_dlon, du_dlat = grad(u[k])
-        dv_dlon, dv_dlat = grad(v[k])
-        zeta_dot.append(-(u[k] * (zeta_g[k] + f) / coslat + v[k] * jnp.gradient(zeta_g[k] + f, grid.lats, axis=0)))
-        div_dot.append(-(u[k] * du_dlon / coslat + v[k] * dv_dlat + (zeta_g[k] + f) * v[k] / coslat))
-        Tadv_lon, Tadv_lat = grad(T_g[k])
-        T_dot.append(-(u[k] * Tadv_lon / coslat + v[k] * Tadv_lat))
+        dlon_zeta, dlat_zeta = grad(zeta_g[k] + f)
+        dlon_div, dlat_div = grad(div_g[k])
+        dlon_T, dlat_T = grad(T_g[k])
+        # spherical metric factors via coslat_safe
+        zeta_dot.append(-(u[k] * dlon_zeta / coslat_safe + v[k] * dlat_zeta))
+        div_nonlin = -(u[k] * dlon_div / coslat_safe + v[k] * dlat_div)
+        metric_stretch = -(div_g[k] * (div_g[k] + 0.5 * (jnp.tan(grid.lat2d) * v[k] / planet.a)) + (zeta_g[k] + f) * (v[k] * jnp.tan(grid.lat2d) / planet.a))
+        div_dot.append(div_nonlin + metric_stretch)
+        T_adv.append(-(u[k] * dlon_T / coslat_safe + v[k] * dlat_T))
     zeta_dot = jnp.stack(zeta_dot)
     div_dot = jnp.stack(div_dot)
-    T_dot = jnp.stack(T_dot)
+    T_dot = jnp.stack(T_adv)
     # physics
     T_dot = T_dot + diurnal_heating(T_g, grid, t, planet, num) + newtonian_cooling(T_g, num)
     lnps_dot = -jnp.mean(div_g, axis=0)
