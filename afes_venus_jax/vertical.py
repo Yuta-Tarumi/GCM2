@@ -1,69 +1,48 @@
-"""Vertical grid construction and hydrostatic utilities."""
+"""Sigma-coordinate vertical utilities and hydrostatic geopotential."""
 from __future__ import annotations
 
 import jax.numpy as jnp
-from .config import Config
+
+from .config import Numerics, Planet
 
 
-def sigma_levels(L: int, H_ref: float = 15_000.0):
-    """Construct Lorenz-staggered sigma coordinate.
-
-    Parameters
-    ----------
-    L : int
-        Number of full levels.
-    H_ref : float
-        Reference scale height [m] used to map a target height grid to
-        sigma = exp(-z/H_ref).
-
-    Returns
-    -------
-    sigma_full : jnp.ndarray
-        Full-level sigma values, shape (L,).
-    sigma_half : jnp.ndarray
-        Half-level sigma values, shape (L+1,).
-    z_half : jnp.ndarray
-        Half-level geometric heights [m], shape (L+1,).
-    """
-
-    z_half = jnp.linspace(0.0, 120_000.0, L + 1)
+def sigma_levels(num: Numerics):
+    z_half = jnp.linspace(0.0, 120_000.0, num.L + 1)
+    H_ref = 15_000.0
     sigma_half = jnp.exp(-z_half / H_ref)
     sigma_full = 0.5 * (sigma_half[:-1] + sigma_half[1:])
     return sigma_full, sigma_half, z_half
 
 
-def hydrostatic_phi(
-    T: jnp.ndarray,
-    lnps: jnp.ndarray,
-    cfg: Config,
-    sigma_full: jnp.ndarray,
-    sigma_half: jnp.ndarray,
-) -> jnp.ndarray:
-    """Integrate hydrostatic balance to compute geopotential.
+def reference_temperature_profile(num: Numerics):
+    _, _, z_half = sigma_levels(num)
+    z_full = 0.5 * (z_half[:-1] + z_half[1:])
+    return z_full, jnp.linspace(730.0, 170.0, num.L)
 
-    Parameters
-    ----------
-    T : array (..., L, nlat, nlon)
-        Temperature [K].
-    lnps : array (..., nlat, nlon)
-        Log surface pressure.
-    cfg : Config
-    sigma_full, sigma_half : array
-        Sigma coordinates.
 
-    Returns
-    -------
-    phi : array (..., L, nlat, nlon)
-        Geopotential [m^2 s^-2].
-    """
+def hydrostatic_geopotential(T: jnp.ndarray, lnps: jnp.ndarray, planet: Planet, num: Numerics) -> jnp.ndarray:
+    """Integrate hydrostatic balance to obtain geopotential on full levels."""
 
-    ps = jnp.exp(lnps)[..., None, None]
-    # pressure at full levels
-    p_full = ps * sigma_full[:, None, None]
-    # delta ln p between half levels
-    dlnp = jnp.log(ps * sigma_half[:-1, None, None]) - jnp.log(ps * sigma_half[1:, None, None])
-    # Hypsometric relation: dPhi = R*T*dlnp
-    layer_phi = cfg.R_gas * T * dlnp
-    # integrate from top downward
-    phi = jnp.cumsum(layer_phi[::-1], axis=-3)[::-1]
+    sigma_full, sigma_half, _ = sigma_levels(num)
+    ps = jnp.exp(lnps)
+    p_full = sigma_full[:, None, None] * ps[None, :, :]
+    p_half = sigma_half[:, None, None] * ps[None, :, :]
+
+    # Simmons–Burridge style coefficients
+    delta_sigma = jnp.diff(sigma_half)
+    ak = delta_sigma[:, None, None]
+    bk = jnp.log(p_half[1:, ...] / p_half[:-1, ...])
+    # integrate downward
+    phi = jnp.zeros((num.L, ps.shape[0], ps.shape[1]))
+    running = jnp.zeros_like(ps)
+    for k in range(num.L - 1, -1, -1):
+        lapse = planet.R_gas * T[k]
+        running = running + lapse * bk[k]
+        phi = phi.at[k].set(running)
     return phi
+
+
+def temperature_to_sigma_profile(Tz_func, num: Numerics):
+    _, _, z_half = sigma_levels(num)
+    z_full = 0.5 * (z_half[:-1] + z_half[1:])
+    return z_full, Tz_func(z_full)

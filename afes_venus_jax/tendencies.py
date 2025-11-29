@@ -1,88 +1,72 @@
-"""Nonlinear tendency calculations on the grid."""
+"""Explicit nonlinear and physics tendencies in grid space."""
 from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-from .config import Config
-from .spharm import analysis_grid_to_spec, synthesis_spec_to_grid, psi_chi_from_zeta_div, uv_from_psi_chi
-from .state import reference_temperature_profile
-from .vertical import sigma_levels
+
+from .config import Planet, Numerics
+from .grid import gaussian_grid
+from .spharm import analysis_grid_to_spec, synthesis_spec_to_grid, psi_chi_from_zeta_div, uv_from_psi_chi, laplace_fac
+from .vertical import hydrostatic_geopotential, sigma_levels
+from .physics import diurnal_heating, newtonian_cooling
 
 
-def _grad_central(field: jnp.ndarray, dlat: float, dlon: float):
-    df_dlon = (jnp.roll(field, -1, axis=-1) - jnp.roll(field, 1, axis=-1)) / (2 * dlon)
-    df_dlat = (jnp.roll(field, -1, axis=-2) - jnp.roll(field, 1, axis=-2)) / (2 * dlat)
-    return df_dlat, df_dlon
+def spectral_to_grid(state, num: Numerics):
+    zeta = synthesis_spec_to_grid(state.zeta, num)
+    div = synthesis_spec_to_grid(state.div, num)
+    T = synthesis_spec_to_grid(state.T, num)
+    lnps = synthesis_spec_to_grid(state.lnps, num)
+    return zeta, div, T, lnps
 
 
-def _temperature_forcing(lat2d, lon2d, time: float, cfg: Config):
-    """Compute diurnally varying solar heating in grid space."""
+def grid_to_spectral(zeta, div, T, lnps, num: Numerics):
+    return (
+        analysis_grid_to_spec(zeta, num),
+        analysis_grid_to_spec(div, num),
+        analysis_grid_to_spec(T, num),
+        analysis_grid_to_spec(lnps, num),
+    )
 
-    _, _, z_half = sigma_levels(cfg.L)
+
+def nonlinear_tendencies(state, t: float, planet: Planet, num: Numerics):
+    grid = gaussian_grid(num.nlat, num.nlon)
+    sigma_full, _, _ = sigma_levels(num)
+
+    zeta_g, div_g, T_g, lnps_g = spectral_to_grid(state, num)
+    psi, chi = psi_chi_from_zeta_div(state.zeta, state.div, num, planet)
+    u, v = uv_from_psi_chi(psi, chi, num, planet)
+
+    phi = hydrostatic_geopotential(T_g, lnps_g, planet, num)
+
+    # Horizontal derivatives via spectral multiplication
+    def ddx(f):
+        spec = analysis_grid_to_spec(f, num)
+        kx = 1j * 2 * jnp.pi * jnp.fft.fftfreq(num.nlon)
+        return synthesis_spec_to_grid(spec * kx[None, :], num)
+
+    def ddy(f):
+        spec = analysis_grid_to_spec(f, num)
+        ky = 1j * 2 * jnp.pi * jnp.fft.fftfreq(num.nlat)
+        return synthesis_spec_to_grid(spec * ky[:, None], num)
+
+    zeta_tend = -(u * ddx(zeta_g) + v * ddy(zeta_g))
+    phi_spec = analysis_grid_to_spec(phi, num)
+    div_tend = -(u * ddx(div_g) + v * ddy(div_g)) + synthesis_spec_to_grid(
+        -laplace_fac(phi_spec, num, planet), num
+    )
+    T_tend = -(u * ddx(T_g) + v * ddy(T_g))
+    lnps_tend = jnp.zeros_like(state.lnps)
+
+    # Physics tendencies
+    z_full, _ = hydrostatic_levels(num)
+    Q = diurnal_heating(grid.lat2d, grid.lon2d, z_full, t, planet, num)
+    cool = newtonian_cooling(T_g, planet, num)
+    T_tend = T_tend + Q + cool
+
+    return grid_to_spectral(zeta_tend, div_tend, T_tend, lnps_tend, num)
+
+
+def hydrostatic_levels(num: Numerics):
+    sigma_full, _, z_half = sigma_levels(num)
     z_full = 0.5 * (z_half[:-1] + z_half[1:])
-
-    local_time = lon2d - cfg.Omega * time
-    diurnal = jnp.maximum(0.0, jnp.cos(local_time))
-    meridional = jnp.cos(lat2d)
-    vertical = jnp.exp(-0.5 * ((z_full - cfg.heating_peak_height) / cfg.heating_width) ** 2)
-
-    base = cfg.heating_rate * vertical[:, None, None]
-    return base * diurnal[None, :, :] * meridional[None, :, :]
-
-
-def _newtonian_cooling(T_g: jnp.ndarray, cfg: Config):
-    """Relax toward the reference vertical profile."""
-
-    T_ref = reference_temperature_profile(cfg)[:, None, None]
-    return -(T_g - T_ref) / cfg.tau_newton
-
-
-def nonlinear_tendencies(state, cfg: Config, time: float = 0.0):
-    """Compute Eulerian nonlinear tendencies in spectral space.
-
-    The formulation is intentionally simple: centred finite differences on
-    the Gaussian grid with periodic longitudes. It is self-consistent with
-    the surrogate spectral operators used in :mod:`afes_venus_jax.spharm`.
-    """
-
-    lats, lons = jnp.linspace(-jnp.pi / 2, jnp.pi / 2, cfg.nlat), jnp.linspace(0, 2 * jnp.pi, cfg.nlon, endpoint=False)
-    lat2d, lon2d = jnp.meshgrid(lats, lons, indexing="ij")
-    dlat = lats[1] - lats[0]
-    dlon = lons[1] - lons[0]
-
-    # synthesize prognostics
-    zeta_g = jax.vmap(lambda lev: synthesis_spec_to_grid(lev, cfg))(state.zeta)
-    div_g = jax.vmap(lambda lev: synthesis_spec_to_grid(lev, cfg))(state.div)
-    T_g = jax.vmap(lambda lev: synthesis_spec_to_grid(lev, cfg))(state.T)
-    lnps_g = synthesis_spec_to_grid(state.lnps, cfg)
-
-    psi_lm, chi_lm = psi_chi_from_zeta_div(state.zeta, state.div, cfg)
-    u_g, v_g = jax.vmap(lambda p, c: uv_from_psi_chi(p, c, cfg))(psi_lm, chi_lm)
-
-    def advect(field, u, v):
-        df_dlat, df_dlon = _grad_central(field, dlat, dlon)
-        return -(u * df_dlon + v * df_dlat)
-
-    zeta_t = jax.vmap(advect)(zeta_g, u_g, v_g)
-    div_t = jax.vmap(advect)(div_g, u_g, v_g)
-    T_t = jax.vmap(advect)(T_g, u_g, v_g)
-
-    # Diabatic tendencies in grid space
-    heating = _temperature_forcing(lat2d, lon2d, time, cfg)
-    cooling = _newtonian_cooling(T_g, cfg)
-    T_t = T_t + heating + cooling
-
-    # surface pressure tendency from mass continuity (very simple surrogate)
-    u_bar = jnp.mean(u_g, axis=0)
-    v_bar = jnp.mean(v_g, axis=0)
-    div_u = _grad_central(u_bar, dlat, dlon)[1]
-    div_v = _grad_central(v_bar, dlat, dlon)[0]
-    lnps_t_grid = -(div_u + div_v)
-
-    # back to spectral space
-    zeta_t_spec = jax.vmap(lambda g: analysis_grid_to_spec(g, cfg))(zeta_t)
-    div_t_spec = jax.vmap(lambda g: analysis_grid_to_spec(g, cfg))(div_t)
-    T_t_spec = jax.vmap(lambda g: analysis_grid_to_spec(g, cfg))(T_t)
-    lnps_t_spec = analysis_grid_to_spec(lnps_t_grid, cfg)
-
-    return zeta_t_spec, div_t_spec, T_t_spec, lnps_t_spec
+    return z_full, sigma_full

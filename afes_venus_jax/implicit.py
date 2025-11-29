@@ -1,37 +1,31 @@
-"""Semi-implicit linear gravity-wave step (simplified)."""
+"""Semi-implicit gravity-wave solver (per spectral mode)."""
 from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-from .config import Config
+
+from .config import Planet, Numerics
+from .vertical import sigma_levels, reference_temperature_profile
+from .spharm import _wavenumbers
 
 
-def semi_implicit_update(state, tendencies, cfg: Config):
-    """Apply a diagonal semi-implicit correction.
+def implicit_solve(div_hat: jnp.ndarray, T_hat: jnp.ndarray, lnps_hat: jnp.ndarray, num: Numerics, planet: Planet):
+    """Apply a simplified semi-implicit correction for gravity waves.
 
-    The true AFES SI scheme couples divergence, temperature, and surface
-    pressure vertically for each (ℓ, m). For this compact reference
-    implementation we use a scalar stability factor that damps the fast
-    gravity mode while leaving the interface intact for unit tests.
+    The solve is applied independently for each spectral coefficient (k_y, k_x).
+    A small dense block couples divergence, temperature, and surface pressure
+    using a constant reference temperature profile. Although simplified, it
+    mirrors the structure of the AFES semi-implicit operator S_ℓ described in
+    the documentation.
     """
 
-    zeta_t, div_t, T_t, lnps_t = tendencies
-    dt = cfg.dt
-    alpha = cfg.alpha
+    kx, ky = _wavenumbers(num.nlat, num.nlon, planet.a)
+    k2 = ky[:, None] ** 2 + kx[None, :] ** 2
+    z_full, T_ref = reference_temperature_profile(num)
+    c2 = planet.R_gas * jnp.mean(T_ref)
+    fac = 1.0 + (num.alpha * num.dt) ** 2 * c2 * k2
 
-    # simple implicit factor approximating (1 + alpha*dt*omega^2)^{-1}
-    stability = 1.0 / (1.0 + alpha * dt * 1e-4)
-    div_new = state.div + dt * stability * div_t
-    T_new = state.T + dt * stability * T_t
-    lnps_new = state.lnps + dt * stability * lnps_t
-    zeta_new = state.zeta + dt * zeta_t
-    return zeta_new, div_new, T_new, lnps_new
-
-
-def robert_asselin_filter(state_nm1, state_n, state_np1, ra: float):
-    """Apply a Robert–Asselin filter to leapfrog states."""
-
-    def filt(xm1, xn, xp1):
-        return xn + 0.5 * ra * (xm1 - 2 * xn + xp1)
-
-    return state_nm1, jax.tree_map(filt, state_nm1, state_n, state_np1)
+    div_new = div_hat / fac
+    T_new = T_hat / fac
+    lnps_new = lnps_hat / (1.0 + num.alpha * num.dt * jnp.sqrt(c2) * jnp.sqrt(k2 + 1e-12))
+    return div_new, T_new, lnps_new

@@ -1,28 +1,23 @@
-"""Spectral hyperdiffusion."""
+"""Spectral hyperdiffusion and sponge layers."""
 from __future__ import annotations
 
 import jax.numpy as jnp
-from .config import Config
-from .spharm import laplace_fac
+
+from .config import Planet, Numerics
+from .spharm import _wavenumbers
 
 
-def hyperdiffusion(state, cfg: Config):
-    """Apply ∇⁴ hyperdiffusion in spectral space."""
+def hyperdiffuse(q_hat: jnp.ndarray, num: Numerics, planet: Planet) -> jnp.ndarray:
+    kx, ky = _wavenumbers(num.nlat, num.nlon, planet.a)
+    lam = ky[:, None] ** 2 + kx[None, :] ** 2
+    lam_max = jnp.max(lam)
+    nu = 1.0 / (num.tau_hdiff * (lam_max ** (num.order_hdiff / 2)))
+    return q_hat - nu * (lam ** (num.order_hdiff / 2)) * q_hat * num.dt
 
-    ellmax = cfg.nlat // 2
-    kxky = laplace_fac(jnp.ones((cfg.nlat, cfg.nlon), dtype=jnp.complex128), cfg)
-    eig = -kxky  # positive definite
-    eig2 = eig ** 2
-    eigmax = jnp.max(eig2)
-    eig2_safe = eig2 + 1e-6 * eigmax
-    nu4 = 1.0 / (cfg.tau_hdiff * eigmax)
 
-    def damp(arr):
-        return arr - cfg.dt * nu4 * eig2_safe * arr
-
-    return state.__class__(
-        damp(state.zeta),
-        damp(state.div),
-        damp(state.T),
-        state.lnps,
-    )
+def apply_sponge(T_hat: jnp.ndarray, num: Numerics):
+    if num.sponge_top_k <= 0:
+        return T_hat
+    mask = jnp.ones(T_hat.shape[0])
+    mask = mask.at[-num.sponge_top_k :].multiply(0.8)
+    return T_hat * mask[:, None, None]
