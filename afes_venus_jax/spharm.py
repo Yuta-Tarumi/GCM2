@@ -1,110 +1,77 @@
-"""Simplified spherical harmonic helpers built on FFTs.
+"""Spectral transform utilities using FFT surrogates.
 
-The implementation uses doubly periodic FFTs as a stand-in for full
-spherical harmonics. This keeps the code JIT-friendly and adequate for
-self-consistency tests while preserving the spectral operator interface.
+For tractability in this compact implementation we use doubly periodic FFT
+operators that remain JAX-friendly while preserving the spectral interface
+(e.g., Laplacian eigenproperties and inversion). The functions are vectorised
+so that vertical levels can be handled by ``vmap`` in callers.
 """
 from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-from jax import lax
-from .config import Config
-from .grid import expand_grid
+
+from .config import Numerics, Planet
 
 
 def _wavenumbers(nlat: int, nlon: int, a: float):
-    # Angular wavenumbers (radian-based) compatible with FFT derivatives.
-    kx = 2 * jnp.pi * jnp.fft.fftfreq(nlon)
-    ky = 2 * jnp.pi * jnp.fft.fftfreq(nlat)
+    kx = 2 * jnp.pi * jnp.fft.fftfreq(nlon) / a
+    ky = 2 * jnp.pi * jnp.fft.fftfreq(nlat) / a
     return kx, ky
 
 
-def analysis_grid_to_spec(field_grid: jnp.ndarray, cfg: Config) -> jnp.ndarray:
-    """Forward transform grid → spectral coefficients.
+def analysis_grid_to_spec(field_grid: jnp.ndarray, num: Numerics) -> jnp.ndarray:
+    """Forward transform grid → complex spectral coefficients."""
 
-    Parameters
-    ----------
-    field_grid : array (..., nlat, nlon)
-    cfg : Config
-
-    Returns
-    -------
-    array (..., nlat, nlon)
-        Complex spectral coefficients (periodic FFT surrogate).
-    """
-
-    return jnp.fft.fft2(field_grid) / (cfg.nlat * cfg.nlon)
+    return jnp.fft.fft2(field_grid) / (num.nlat * num.nlon)
 
 
-def synthesis_spec_to_grid(flm: jnp.ndarray, cfg: Config) -> jnp.ndarray:
-    """Inverse transform spectral → grid."""
+def synthesis_spec_to_grid(flm: jnp.ndarray, num: Numerics) -> jnp.ndarray:
+    """Inverse transform spectral → grid values (real)."""
 
-    return jnp.fft.ifft2(flm * (cfg.nlat * cfg.nlon))
-
-
-def lap_spec(flm: jnp.ndarray, cfg: Config) -> jnp.ndarray:
-    """Apply Laplacian in spectral space using FFT wavenumbers."""
-
-    kx, ky = _wavenumbers(cfg.nlat, cfg.nlon, cfg.a)
-    kx2 = jnp.square(kx)
-    ky2 = jnp.square(ky)
-
-    def apply(arr):
-        res = arr
-        res = jnp.fft.fft(res, axis=-1)
-        res = jnp.fft.fft(res, axis=-2)
-        fac = -(ky2[:, None] + kx2[None, :])
-        res = res * fac
-        return res
-
-    return laplace_fac(flm, cfg)
+    grid = jnp.fft.ifft2(flm * (num.nlat * num.nlon))
+    return grid
 
 
-def laplace_fac(flm: jnp.ndarray, cfg: Config) -> jnp.ndarray:
-    kx, ky = _wavenumbers(cfg.nlat, cfg.nlon, cfg.a)
+def laplace_fac(flm: jnp.ndarray, num: Numerics, planet: Planet) -> jnp.ndarray:
+    """Return Laplacian operator applied in spectral space."""
+
+    kx, ky = _wavenumbers(num.nlat, num.nlon, planet.a)
     fac = -(ky[:, None] ** 2 + kx[None, :] ** 2)
     return flm * fac
 
 
-def invert_laplacian(flm: jnp.ndarray, cfg: Config) -> jnp.ndarray:
-    """Invert Laplacian safely, zeroing the mean mode."""
-
-    kx, ky = _wavenumbers(cfg.nlat, cfg.nlon, cfg.a)
+def invert_laplacian(flm: jnp.ndarray, num: Numerics, planet: Planet) -> jnp.ndarray:
+    kx, ky = _wavenumbers(num.nlat, num.nlon, planet.a)
     denom = ky[:, None] ** 2 + kx[None, :] ** 2
     safe = jnp.where(denom == 0, 1e-12, denom)
-    inv = -flm / safe
-    return inv
+    return -flm / safe
 
 
-def psi_chi_from_zeta_div(zeta_lm: jnp.ndarray, div_lm: jnp.ndarray, cfg: Config):
-    """Return streamfunction and velocity potential in spectral space."""
-
-    psi = invert_laplacian(zeta_lm, cfg)
-    chi = invert_laplacian(div_lm, cfg)
+def psi_chi_from_zeta_div(zeta_lm: jnp.ndarray, div_lm: jnp.ndarray, num: Numerics, planet: Planet):
+    zeta_lm = zeta_lm.at[0, 0].set(0.0)
+    div_lm = div_lm.at[0, 0].set(0.0)
+    psi = invert_laplacian(zeta_lm, num, planet)
+    chi = invert_laplacian(div_lm, num, planet)
+    psi = psi.at[0, 0].set(0.0)
+    chi = chi.at[0, 0].set(0.0)
     return psi, chi
 
 
-def uv_from_psi_chi(psi_lm: jnp.ndarray, chi_lm: jnp.ndarray, cfg: Config):
-    """Compute horizontal winds from potentials.
+def uv_from_psi_chi(psi_lm: jnp.ndarray, chi_lm: jnp.ndarray, num: Numerics, planet: Planet):
+    """Compute horizontal winds from streamfunction and velocity potential."""
 
-    A doubly periodic derivative is used as a surrogate for spin-weighted
-    gradients. The resulting winds are divergence/rotational consistent
-    with the surrogate operators.
-    """
-
-    kx, ky = _wavenumbers(cfg.nlat, cfg.nlon, cfg.a)
+    kx, ky = _wavenumbers(num.nlat, num.nlon, planet.a)
     ikx = 1j * kx[None, :]
     iky = 1j * ky[:, None]
     k2 = kx[None, :] ** 2 + ky[:, None] ** 2
     k2_safe = jnp.where(k2 == 0, 1e-12, k2)
 
-    div_lm = -(k2_safe) * chi_lm
-    zeta_lm = -(k2_safe) * psi_lm
+    zeta_hat = -(k2_safe) * psi_lm
+    div_hat = -(k2_safe) * chi_lm
 
-    u_hat = -(ikx * div_lm - iky * zeta_lm) / k2_safe
-    v_hat = -(ikx * zeta_lm + iky * div_lm) / k2_safe
+    u_hat = -iky * psi_lm + ikx * chi_lm
+    v_hat = ikx * psi_lm + iky * chi_lm
 
-    u = synthesis_spec_to_grid(u_hat, cfg)
-    v = synthesis_spec_to_grid(v_hat, cfg)
+    u = synthesis_spec_to_grid(u_hat, num)
+    v = synthesis_spec_to_grid(v_hat, num)
     return u, v
