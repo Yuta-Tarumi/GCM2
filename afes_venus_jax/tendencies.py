@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from afes_venus_jax.config import Planet, Numerics
 from afes_venus_jax.grid import gaussian_grid
 from afes_venus_jax.physics import diurnal_heating, newtonian_cooling
-from afes_venus_jax.spharm import analysis_grid_to_spec, synthesis_spec_to_grid, invert_laplacian, uv_from_psi_chi
+from afes_venus_jax.spharm import analysis_grid_to_spec, synthesis_spec_to_grid, invert_laplacian, lap_spec, uv_from_psi_chi
 from afes_venus_jax.vertical import hydrostatic_geopotential, sigma_levels
 
 
@@ -17,6 +17,9 @@ def spectral_to_grid(state, num: Numerics, planet: Planet, grid=None):
     div_g = jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(state.div)
     T_g = jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(state.T)
     lnps_g = synthesis_spec_to_grid(state.lnps, num.nlat, num.nlon)
+    lnps_ref = jnp.log(planet.ps_ref)
+    lnps_g = jnp.nan_to_num(lnps_g, nan=lnps_ref)
+    lnps_g = lnps_ref + jnp.clip(lnps_g - lnps_ref, -2.0, 2.0)
     psi_hat = jax.vmap(lambda z: invert_laplacian(z, num.nlat, num.nlon, planet.a))(state.zeta)
     chi_hat = jax.vmap(lambda d: invert_laplacian(d, num.nlat, num.nlon, planet.a))(state.div)
     u = []
@@ -36,6 +39,9 @@ def spectral_to_grid(state, num: Numerics, planet: Planet, grid=None):
 def nonlinear_tendencies(state, t: float, num: Numerics, planet: Planet, grid=None):
     grid = grid or gaussian_grid(num.nlat, num.nlon)
     zeta_g, div_g, T_g, lnps_g, u, v, Phi, ps = spectral_to_grid(state, num, planet, grid)
+    Phi_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(Phi)
+    lap_Phi_spec = jax.vmap(lambda x: lap_spec(x, num.nlat, num.nlon, planet.a))(Phi_spec)
+    lap_Phi = jax.vmap(lambda x: synthesis_spec_to_grid(x, num.nlat, num.nlon))(lap_Phi_spec)
     coslat = jnp.cos(grid.lat2d)
     coslat_safe = jnp.where(jnp.abs(coslat) < 1e-6, 1e-6, coslat)
     f = 2 * planet.Omega * jnp.sin(grid.lat2d)
@@ -61,7 +67,7 @@ def nonlinear_tendencies(state, t: float, num: Numerics, planet: Planet, grid=No
         zeta_dot.append(-(u[k] * dlon_zeta / coslat_safe + v[k] * dlat_zeta))
         div_nonlin = -(u[k] * dlon_div / coslat_safe + v[k] * dlat_div)
         metric_stretch = -(div_g[k] * (div_g[k] + 0.5 * (jnp.tan(grid.lat2d) * v[k] / planet.a)) + (zeta_g[k] + f) * (v[k] * jnp.tan(grid.lat2d) / planet.a))
-        div_dot.append(div_nonlin + metric_stretch)
+        div_dot.append(div_nonlin + metric_stretch - lap_Phi[k])
         T_adv.append(-(u[k] * dlon_T / coslat_safe + v[k] * dlat_T))
     zeta_dot = jnp.stack(zeta_dot)
     div_dot = jnp.stack(div_dot)
