@@ -1,6 +1,8 @@
 """One time step of the semi-implicit spectral model."""
 from __future__ import annotations
 
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 
@@ -10,7 +12,7 @@ from afes_venus_jax.implicit import si_solve
 from afes_venus_jax.tendencies import nonlinear_tendencies
 
 
-@jax.jit(static_argnums=(2, 3))
+@partial(jax.jit, static_argnums=(2, 3))
 def step(state, t: float, num: Numerics, planet: Planet):
     # 1) explicit tendencies
     rhs = nonlinear_tendencies(state, t, num, planet)

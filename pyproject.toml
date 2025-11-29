@@ -5,13 +5,13 @@ description = "AFES-Venus style hydrostatic primitive-equation spectral core in 
 authors = [{name = "OpenAI", email = "example@example.com"}]
 requires-python = ">=3.10"
 dependencies = [
-    "jax>=0.4.28",
-    "jaxlib>=0.4.28",
+    "jax>=0.8.0",
+    "jaxlib>=0.8.0",
     "numpy",
     "scipy",
     "xarray",
     "netcdf4",
-    "s2fft>=4.0.0",
+    "s2fft==1.3.0",
     "pytest",
 ]
 

@@ -22,6 +22,11 @@ Install dependencies and run tests:
 pip install -r requirements.txt
 pytest -q
 ```
+For CUDA-enabled environments, install the JAX wheels compiled for CUDA 12 before the remaining dependencies:
+```bash
+pip install --upgrade "jax[cuda12_pip]==0.8.0" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install -r requirements.txt
+```
 Run the T42L60 Venus demo (writes PNG every 10 steps):
 ```bash
 python -m afes_venus_jax.examples.t42l60_venus_dry_diurnal

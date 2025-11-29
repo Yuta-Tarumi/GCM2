@@ -9,7 +9,7 @@ import jax.numpy as jnp
 
 from afes_venus_jax.config import Planet, Numerics, default_planet, default_numerics
 from afes_venus_jax.grid import gaussian_grid
-from afes_venus_jax.spharm import analysis_grid_to_spec
+from afes_venus_jax.spharm import analysis_grid_to_spec, lap_spec
 from afes_venus_jax.vertical import sigma_levels, level_altitudes
 
 
@@ -47,10 +47,21 @@ def initial_state_T_profile(num: Numerics | None = None, planet: Planet | None =
     num = num or default_numerics()
     planet = planet or default_planet()
     grid = gaussian_grid(num.nlat, num.nlon)
-    sigma_full, _ = sigma_levels(num.L)
     T0 = initial_temperature_profile(num.L)
     T_grid = jnp.array(T0)[:, None, None] * jnp.ones((num.L, num.nlat, num.nlon))
     T_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(T_grid)
     lnps_spec = analysis_grid_to_spec(jnp.ones((num.nlat, num.nlon)) * jnp.log(planet.ps_ref), num.Lmax)
-    zeros = jnp.zeros((num.L, num.nlat, num.nlon // 2 + 1), dtype=jnp.complex128)
-    return ModelState(zeta=zeros, div=zeros, T=T_spec, lnps=lnps_spec)
+    z_full, _ = level_altitudes(num.L)
+    # Solid-body rotation that ramps from 0 m/s at the surface to 100 m/s at 70 km,
+    # following a cos(latitude) profile and held constant above.
+    peak_height = 70_000.0
+    peak_speed = 100.0
+    wind_speed_levels = peak_speed * jnp.minimum(z_full / peak_height, 1.0)
+    psi_lat_profile = -(planet.a * (grid.lat2d / 2.0 + jnp.sin(2.0 * grid.lat2d) / 4.0))
+    psi_grid = wind_speed_levels[:, None, None] * psi_lat_profile[None, :, :]
+    chi_grid = jnp.zeros_like(psi_grid)
+    psi_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(psi_grid)
+    chi_spec = jax.vmap(lambda x: analysis_grid_to_spec(x, num.Lmax))(chi_grid)
+    zeta_spec = jax.vmap(lambda x: lap_spec(x, num.nlat, num.nlon, planet.a))(psi_spec)
+    div_spec = jax.vmap(lambda x: lap_spec(x, num.nlat, num.nlon, planet.a))(chi_spec)
+    return ModelState(zeta=zeta_spec, div=div_spec, T=T_spec, lnps=lnps_spec)

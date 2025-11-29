@@ -6,16 +6,18 @@ with shape ``(nlat, nlon//2+1)`` matching ``rfft2`` output.
 """
 from __future__ import annotations
 
+import functools
+
 import jax
 import jax.numpy as jnp
 
 
-@jax.jit(static_argnums=(1,))
+@functools.partial(jax.jit, static_argnums=(1,))
 def analysis_grid_to_spec(field_grid: jnp.ndarray, Lmax: int | None = None) -> jnp.ndarray:
     return jnp.fft.rfft2(field_grid)
 
 
-@jax.jit(static_argnums=(1, 2))
+@functools.partial(jax.jit, static_argnums=(1, 2))
 def synthesis_spec_to_grid(flm: jnp.ndarray, nlat: int, nlon: int) -> jnp.ndarray:
     return jnp.fft.irfft2(flm, s=(nlat, nlon))
 
@@ -26,7 +28,7 @@ def _wavenumbers(nlat: int, nlon: int, a: float) -> tuple[jnp.ndarray, jnp.ndarr
     return kx, ky
 
 
-@jax.jit(static_argnums=(1, 2, 3))
+@functools.partial(jax.jit, static_argnums=(1, 2, 3))
 def lap_spec(flm: jnp.ndarray, nlat: int, nlon: int, a: float) -> jnp.ndarray:
     kx = jnp.fft.fftfreq(nlon) * 2 * jnp.pi / a
     ky = jnp.fft.fftfreq(nlat) * 2 * jnp.pi / a
@@ -37,7 +39,7 @@ def lap_spec(flm: jnp.ndarray, nlat: int, nlon: int, a: float) -> jnp.ndarray:
     return -((ky_grid ** 2 + kx_grid ** 2)) * flm
 
 
-@jax.jit(static_argnums=(1, 2, 3))
+@functools.partial(jax.jit, static_argnums=(1, 2, 3))
 def invert_laplacian(flm: jnp.ndarray, nlat: int, nlon: int, a: float) -> jnp.ndarray:
     kx = jnp.fft.fftfreq(nlon) * 2 * jnp.pi / a
     ky = jnp.fft.fftfreq(nlat) * 2 * jnp.pi / a
@@ -48,7 +50,7 @@ def invert_laplacian(flm: jnp.ndarray, nlat: int, nlon: int, a: float) -> jnp.nd
     return flm / (-denom)
 
 
-@jax.jit(static_argnums=(2, 3, 4))
+@functools.partial(jax.jit, static_argnums=(2, 3, 4))
 def uv_from_psi_chi(psi_hat: jnp.ndarray, chi_hat: jnp.ndarray, nlat: int, nlon: int, a: float):
     kx = jnp.fft.fftfreq(nlon) * 2 * jnp.pi / a
     ky = jnp.fft.fftfreq(nlat) * 2 * jnp.pi / a
