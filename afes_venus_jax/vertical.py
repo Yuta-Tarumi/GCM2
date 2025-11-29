@@ -51,7 +51,12 @@ def hydrostatic_geopotential(T: jnp.ndarray, ps: jnp.ndarray, sigma_half: jnp.nd
 
 
 @jax.jit
-def vertical_diffusion(field: jnp.ndarray, z_half: jnp.ndarray, kappa_v: float):
+def vertical_diffusion(
+    field: jnp.ndarray,
+    z_half: jnp.ndarray,
+    kappa_v: float,
+    kappa_scale: jnp.ndarray | None = None,
+):
     """Simple vertical diffusion to couple neighbouring layers.
 
     Parameters
@@ -62,14 +67,23 @@ def vertical_diffusion(field: jnp.ndarray, z_half: jnp.ndarray, kappa_v: float):
         Altitude of half levels (m) used to compute layer thickness.
     kappa_v: float
         Constant vertical diffusivity (m^2/s).
+    kappa_scale: [L] or None
+        Optional per-layer scaling of diffusivity. Values near zero damp
+        vertical mixing, which is useful to prevent surface temperatures
+        from diffusing unrealistically into the upper atmosphere.
     """
 
     dz_full = jnp.diff(z_half)
     # interface spacing uses the mean of neighboring layer thicknesses
     dz_interface = 0.5 * (dz_full[:-1] + dz_full[1:])
 
+    kappa_layer = kappa_v
+    if kappa_scale is not None:
+        kappa_layer = kappa_layer * kappa_scale[:, None, None]
+    kappa_interface = 0.5 * (kappa_layer[:-1, ...] + kappa_layer[1:, ...])
+
     grad = (field[1:, ...] - field[:-1, ...]) / dz_interface[:, None, None]
     flux = jnp.zeros((field.shape[0] + 1,) + field.shape[1:])
-    flux = flux.at[1:-1, ...].set(-kappa_v * grad)
+    flux = flux.at[1:-1, ...].set(-kappa_interface * grad)
     tendency = -(flux[1:, ...] - flux[:-1, ...]) / dz_full[:, None, None]
     return tendency

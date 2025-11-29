@@ -38,7 +38,7 @@ class Numerics:
     ra: float = 0.05
     tau_hdiff: float = 0.05 * 86400.0
     order_hdiff: int = 4
-    kappa_v: float = 40.0  # m^2/s vertical diffusion for inter-level coupling
+    kappa_v: float = 4.0  # m^2/s vertical diffusion for inter-level coupling
     sponge_top_k: int = 8
     tau_rad_surface_days: float = 30.0
     tau_rad_cloud_days: float = 10.0
