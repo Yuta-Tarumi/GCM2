@@ -32,17 +32,20 @@ def _angular_wavenumbers(nlat: int, nlon: int) -> tuple[jnp.ndarray, jnp.ndarray
 
     Longitude samples span ``[0, 2π)`` so the angular frequency associated with
     the rFFT output is the integer zonal wavenumber ``m``. The latitude spacing
-    is treated as ``π / nlat`` for the derivative operator; this keeps the
-    meridional multiplier in the right units (radians⁻¹) while remaining
-    compatible with the simplified FFT-based representation.
+    is taken as ``2π / nlat`` so that ``fftfreq`` produces meridional
+    wavenumbers that align with the spherical-harmonic degree ``ℓ`` used in
+    ``lap_spec`` and related operators.
     """
 
     m = jnp.fft.rfftfreq(nlon, d=2 * jnp.pi / nlon) * 2 * jnp.pi
-    # Treat latitude sampling as equally spaced in φ with spacing π / nlat.
+    # Treat latitude sampling as equally spaced in φ with spacing 2π / nlat so
+    # the FFT wavenumbers line up with the spherical-harmonic degree ``ℓ``.
+    # This keeps ``ell_like`` equal to the row index (0, 1, 2, ...) so
+    # ``lap_spec`` continues to apply the expected eigenvalue ``ℓ(ℓ+1)/a²``.
     # ``fftfreq`` returns signed frequencies (positive then negative) so the
     # second half of the spectrum correctly represents negative ky rather than
     # large positive wavenumbers.
-    dphi = jnp.pi / nlat
+    dphi = 2 * jnp.pi / nlat
     ky = jnp.fft.fftfreq(nlat, d=dphi) * 2 * jnp.pi
     return ky, m
 
